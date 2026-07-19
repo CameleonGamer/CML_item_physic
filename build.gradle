@@ -1,0 +1,70 @@
+plugins {
+    id "fabric-loom" version "1.17.13"
+    id "maven-publish"
+}
+
+// ---------------------------------------------------------------------------
+// Multi-version selection. Pick the Minecraft target with -Pmc=<version>.
+// The matching "mc<version>_*" properties (see gradle.properties) provide the
+// Minecraft / Yarn / Fabric loader / Fabric API / BBS jar coordinates.
+// ---------------------------------------------------------------------------
+def mc = project.hasProperty("mc") ? project.mc : "1.21.4"
+
+def prop = { String key ->
+    def full = "mc${mc}_${key}"
+    if (!project.hasProperty(full)) {
+        throw new GradleException("Unknown Minecraft target '${mc}': missing property '${full}' in gradle.properties")
+    }
+    return project.property(full)
+}
+
+def minecraftVersion = prop("minecraft_version")
+def yarnVersion = prop("yarn_version")
+def fabricLoaderVersion = prop("fabric_loader_version")
+def fabricApiVersion = prop("fabric_api_version")
+def bbsJar = prop("bbs_jar")
+
+group = project.maven_group
+
+// Tag the artifact with the MC version so the two builds don't collide.
+version = "${project.mod_version}+mc${mc}"
+
+base {
+    archivesName = "${project.archives_base_name}"
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    // Fabric / Minecraft
+    minecraft "com.mojang:minecraft:${minecraftVersion}"
+    mappings "net.fabricmc:yarn:${yarnVersion}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${fabricLoaderVersion}"
+
+    // Fabric API (required by BBS CML Edition)
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+
+    // BBS CML Edition - provided as a local (flat) dependency.
+    // The mod jar is expected in the libs/ folder (see libs/bbs-cml-edition-*.jar).
+    modImplementation files(bbsJar)
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "cml_item_physic",
+  "version": "${version}",
+  "name": "CML Item Physic",
+  "description": "Realistic item physics for BBS CML Edition item forms, inspired by ItemPhysic Mod. Adds a 'Physique' section to the item form keyframe/property editor with on/off toggles for physics and item overlap (se superposer).",
+  "authors": ["CML Item Physic"],
+  "contact": {
+    "sources": "https://github.com/your-org/cml-item-physic",
+    "issues": "https://github.com/your-org/cml-item-physic/issues"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "bbs-addon": [
+      "cml.itemphysic.ItemPhysicAddon"
+    ],
+    "bbs-addon-client": [
+      "cml.itemphysic.ItemPhysicAddonClient"
+    ]
+  },
+  "depends": {
+    "bbs": ">=2.0-beta-1",
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.21.x"
+  },
+  "mixins": []
+}
