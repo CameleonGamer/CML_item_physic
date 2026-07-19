@@ -4,10 +4,10 @@
   "version": "${version}",
   "name": "CML Item Physic",
   "description": "Realistic item physics for BBS CML Edition item forms, inspired by ItemPhysic Mod. Adds a 'Physique' section to the item form keyframe/property editor with on/off toggles for physics and item overlap (se superposer).",
-  "authors": ["CML Item Physic"],
+  "authors": ["Caméléon Gamer"],
   "contact": {
-    "sources": "https://github.com/your-org/cml-item-physic",
-    "issues": "https://github.com/your-org/cml-item-physic/issues"
+    "sources": "https://github.com/CameleonGamer/CML_item_physic",
+    "issues": "https://github.com/CameleonGamer/CML_item_physic/issues"
   },
   "license": "MIT",
   "environment": "*",
