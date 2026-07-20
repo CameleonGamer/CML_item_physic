@@ -54,6 +54,20 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         b -> ((ItemRainForm) this.form).allItems.set(b.getValue())
     );
 
+    public final UIToggle useRandomSeed = new UIToggle(
+        CMLKeys.FORMS_EDITORS_RAIN_RANDOM_SEED,
+        b -> ((ItemRainForm) this.form).useRandomSeed.set(b.getValue())
+    );
+
+    public final UITrackpad seed = new UITrackpad(
+        v -> ((ItemRainForm) this.form).seed.set(Integer.valueOf(v.intValue()))
+    ).integer();
+
+    public final UIButton reshuffle = new UIButton(
+        CMLKeys.FORMS_EDITORS_RAIN_RESHUFFLE,
+        b -> ((ItemRainForm) this.form).reshuffle()
+    );
+
     public final UIItemStack addItem;
 
     public final UIButton clearItems;
@@ -82,6 +96,8 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         this.spins.tooltip(CMLKeys.FORMS_EDITORS_RAIN_SPINS_TOOLTIP, Direction.RIGHT);
         this.bounce.tooltip(CMLKeys.FORMS_EDITORS_RAIN_BOUNCE_TOOLTIP, Direction.RIGHT);
         this.allItems.tooltip(CMLKeys.FORMS_EDITORS_RAIN_ALL_ITEMS_TOOLTIP, Direction.RIGHT);
+        this.useRandomSeed.tooltip(CMLKeys.FORMS_EDITORS_RAIN_RANDOM_SEED_TOOLTIP, Direction.RIGHT);
+        this.seed.tooltip(CMLKeys.FORMS_EDITORS_RAIN_SEED_TOOLTIP, Direction.RIGHT);
 
         this.options.add(
             UI.label(CMLKeys.FORMS_EDITORS_RAIN_TITLE),
@@ -100,6 +116,11 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
             UI.label(CMLKeys.FORMS_EDITORS_RAIN_BOUNCE),
             this.bounce,
             this.allItems,
+            UI.label(CMLKeys.FORMS_EDITORS_RAIN_RANDOM_SEED),
+            this.useRandomSeed,
+            UI.label(CMLKeys.FORMS_EDITORS_RAIN_SEED),
+            this.seed,
+            this.reshuffle,
             UI.label(CMLKeys.FORMS_EDITORS_RAIN_ITEMS),
             this.itemsLabel,
             this.addItem,
@@ -152,6 +173,8 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         this.spins.limit(form.spins).setValue(form.getSpins());
         this.bounce.limit(form.bounce).setValue(form.getBounce());
         this.allItems.setValue((Boolean) form.allItems.get());
+        this.useRandomSeed.setValue((Boolean) form.useRandomSeed.get());
+        this.seed.limit(form.seed).setValue(form.getSeed());
 
         this.mode.setValue(form.getMode());
         this.updateItemsLabel();

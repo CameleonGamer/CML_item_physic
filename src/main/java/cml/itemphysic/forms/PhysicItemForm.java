@@ -4,6 +4,7 @@ import mchorse.bbs_mod.forms.forms.ItemForm;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.numeric.ValueBoolean;
 import mchorse.bbs_mod.settings.values.numeric.ValueFloat;
+import mchorse.bbs_mod.settings.values.numeric.ValueInt;
 
 /**
  * A "Physic Item" form: an {@link ItemForm} whose falling physics is driven by
@@ -45,6 +46,19 @@ public class PhysicItemForm extends ItemForm
     /** Whether items are allowed to overlap/stack ("se superposer"). */
     public final ValueBoolean canOverlap = new ValueBoolean("can_overlap", false);
 
+    /** When true the seed is randomized every evaluation; otherwise the fixed
+     * {@link #seed} value is used. Affects the tumble axis, the scatter/stagger
+     * of the rain, and (with all-items) the item pick. */
+    public final ValueBoolean useRandomSeed = new ValueBoolean("use_random_seed", true);
+
+    /** Deterministic seed used when {@link #useRandomSeed} is false. */
+    public final ValueInt seed = new ValueInt("seed", 1, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
+    /** A persistent random seed, regenerated only via {@link #reshuffle()}. In
+     * random-seed mode this (not the wall clock) drives the fall so the motion
+     * is stable while the film plays and only changes when the user asks. */
+    private int randomSeed = (int) (Math.random() * 0x7FFFFFFF);
+
     public PhysicItemForm()
     {
         super();
@@ -54,6 +68,14 @@ public class PhysicItemForm extends ItemForm
         this.add(this.spins);
         this.add(this.bounce);
         this.add(this.canOverlap);
+        this.add(this.useRandomSeed);
+        this.add(this.seed);
+    }
+
+    /** Re-rolls the persistent random seed used in random-seed mode. */
+    public void reshuffle()
+    {
+        this.randomSeed = (int) (Math.random() * 0x7FFFFFFF);
     }
 
     public float getPhysicsProgress()
@@ -79,5 +101,24 @@ public class PhysicItemForm extends ItemForm
     public boolean canOverlap()
     {
         return ((Boolean) this.canOverlap.get()).booleanValue();
+    }
+
+    public boolean isUseRandomSeed()
+    {
+        return ((Boolean) this.useRandomSeed.get()).booleanValue();
+    }
+
+    public int getSeed()
+    {
+        return ((Integer) this.seed.get()).intValue();
+    }
+
+    /** Effective seed for this evaluation. In random-seed mode the persistent
+     * {@link #randomSeed} is used (stable while playing, re-rollable via
+     * {@link #reshuffle()}); in fixed-seed mode the user {@link #seed} value is
+     * used so the animation is identical and timeline-scrubbable. */
+    public int effectiveSeed()
+    {
+        return this.isUseRandomSeed() ? this.randomSeed : this.getSeed();
     }
 }

@@ -4,6 +4,7 @@ import cml.itemphysic.forms.PhysicItemForm;
 import cml.itemphysic.l10n.CMLKeys;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.forms.editors.panels.UIFormPanel;
+import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.utils.UI;
@@ -44,6 +45,20 @@ public class UIItemPhysiquePanel extends UIFormPanel<PhysicItemForm>
         b -> ((PhysicItemForm) this.form).canOverlap.set(b.getValue())
     );
 
+    public final UIToggle useRandomSeed = new UIToggle(
+        CMLKeys.FORMS_EDITORS_PHYSIC_RANDOM_SEED,
+        b -> ((PhysicItemForm) this.form).useRandomSeed.set(b.getValue())
+    );
+
+    public final UITrackpad seed = new UITrackpad(
+        v -> ((PhysicItemForm) this.form).seed.set(Integer.valueOf(v.intValue()))
+    ).integer();
+
+    public final UIButton reshuffle = new UIButton(
+        CMLKeys.FORMS_EDITORS_PHYSIC_RESHUFFLE,
+        b -> ((PhysicItemForm) this.form).reshuffle()
+    );
+
     public UIItemPhysiquePanel(UIForm editor)
     {
         super(editor);
@@ -53,6 +68,8 @@ public class UIItemPhysiquePanel extends UIFormPanel<PhysicItemForm>
         this.spins.tooltip(CMLKeys.FORMS_EDITORS_PHYSIC_SPINS_TOOLTIP, Direction.RIGHT);
         this.bounce.tooltip(CMLKeys.FORMS_EDITORS_PHYSIC_BOUNCE_TOOLTIP, Direction.RIGHT);
         this.overlap.tooltip(CMLKeys.FORMS_EDITORS_PHYSIC_OVERLAP_TOOLTIP, Direction.RIGHT);
+        this.useRandomSeed.tooltip(CMLKeys.FORMS_EDITORS_PHYSIC_RANDOM_SEED_TOOLTIP, Direction.RIGHT);
+        this.seed.tooltip(CMLKeys.FORMS_EDITORS_PHYSIC_SEED_TOOLTIP, Direction.RIGHT);
 
         this.options.add(
             UI.label(CMLKeys.FORMS_EDITORS_PHYSIC_TITLE),
@@ -64,7 +81,12 @@ public class UIItemPhysiquePanel extends UIFormPanel<PhysicItemForm>
             this.spins,
             UI.label(CMLKeys.FORMS_EDITORS_PHYSIC_BOUNCE),
             this.bounce,
-            this.overlap
+            this.overlap,
+            UI.label(CMLKeys.FORMS_EDITORS_PHYSIC_RANDOM_SEED),
+            this.useRandomSeed,
+            UI.label(CMLKeys.FORMS_EDITORS_PHYSIC_SEED),
+            this.seed,
+            this.reshuffle
         );
     }
 
@@ -78,5 +100,7 @@ public class UIItemPhysiquePanel extends UIFormPanel<PhysicItemForm>
         this.spins.limit(form.spins).setValue(form.getSpins());
         this.bounce.limit(form.bounce).setValue(form.getBounce());
         this.overlap.setValue((Boolean) form.canOverlap.get());
+        this.useRandomSeed.setValue((Boolean) form.useRandomSeed.get());
+        this.seed.limit(form.seed).setValue(form.getSeed());
     }
 }

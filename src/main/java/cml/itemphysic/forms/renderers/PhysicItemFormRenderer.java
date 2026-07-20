@@ -2,8 +2,10 @@ package cml.itemphysic.forms.renderers;
 
 import cml.itemphysic.forms.PhysicItemForm;
 import cml.itemphysic.physics.ItemDropSimulation;
+import cml.itemphysic.physics.WorldCollision;
 import mchorse.bbs_mod.forms.renderers.FormRenderingContext;
 import mchorse.bbs_mod.forms.renderers.ItemFormRenderer;
+import net.minecraft.world.World;
 import org.joml.Quaternionf;
 
 /**
@@ -77,19 +79,47 @@ public class PhysicItemFormRenderer extends ItemFormRenderer
         float dropHeight = form.getDropHeight();
         float bounce = form.getBounce();
         float spins = form.getSpins();
-        int seed = form.stack.get().hashCode();
+        int seed = form.effectiveSeed();
 
         ItemDropSimulation simulation = this.simulation(dropHeight, bounce, spins, seed);
 
         float offsetY = simulation.heightAt(p);
         Quaternionf orientation = simulation.orientationAt(p);
 
+        /* Real-world ground: clamp the item so it rests on whatever solid block
+         * sits below the form's position instead of always at y = 0. */
+        World world = WorldCollision.worldOf(context.entity);
+        mchorse.bbs_mod.utils.pose.Transform transform = this.form.transform.get();
+        double formY = transform.translate.y;
+        double groundLocal = 0.0D;
+
+        try
+        {
+            groundLocal = WorldCollision.groundY(world, transform.translate.x, formY, transform.translate.z, formY) - formY;
+        }
+        catch (Exception ignored)
+        {
+        }
+
+        if (!form.canOverlap() && groundLocal > 0.0D)
+        {
+            /* Add the real ground height over the WHOLE trajectory (not just at
+             * rest) so the item settles on the actual surface with no end jump. */
+            offsetY = offsetY + (float) groundLocal;
+        }
+
         context.stack.push();
-        context.stack.translate(0.0F, offsetY, 0.0F);
-        context.stack.multiply(orientation);
 
-        super.render3D(context);
+        try
+        {
+            context.stack.translate(0.0F, offsetY, 0.0F);
+            context.stack.multiply(orientation);
 
-        context.stack.pop();
+            super.render3D(context);
+        }
+        finally
+        {
+            context.stack.pop();
+        }
     }
 }

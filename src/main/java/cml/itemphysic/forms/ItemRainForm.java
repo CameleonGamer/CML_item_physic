@@ -64,6 +64,23 @@ public class ItemRainForm extends ItemForm
     /** The user-selected pool of items (may be empty -> all items). */
     public final ItemStackList items = new ItemStackList("items");
 
+    /** When true the seed is randomized every evaluation; otherwise the fixed
+     * {@link #seed} value is used. Affects the scatter, the staggered start
+     * times, the tumble axis and (with all-items) the item pick. */
+    public final ValueBoolean useRandomSeed = new ValueBoolean("use_random_seed", true);
+
+    /** Deterministic seed used when {@link #useRandomSeed} is false. */
+    public final ValueInt seed = new ValueInt("seed", 1, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
+    /** Whether items are allowed to overlap/stack ("se superposer"). */
+    public final ValueBoolean canOverlap = new ValueBoolean("can_overlap", false);
+
+    /** A persistent random seed, regenerated only via {@link #reshuffle()}. In
+     * random-seed mode this (not the wall clock) drives the scatter/stagger/
+     * tumble and item pick, so the rain is stable while playing and only
+     * changes when the user asks. */
+    private int randomSeed = (int) (Math.random() * 0x7FFFFFFF);
+
     public ItemRainForm()
     {
         super();
@@ -77,6 +94,15 @@ public class ItemRainForm extends ItemForm
         this.add(this.bounce);
         this.add(this.spins);
         this.add(this.items);
+        this.add(this.useRandomSeed);
+        this.add(this.seed);
+        this.add(this.canOverlap);
+    }
+
+    /** Re-rolls the persistent random seed used in random-seed mode. */
+    public void reshuffle()
+    {
+        this.randomSeed = (int) (Math.random() * 0x7FFFFFFF);
     }
 
     public float getPhysicsProgress()
@@ -117,5 +143,38 @@ public class ItemRainForm extends ItemForm
     public float getSpins()
     {
         return ((Float) this.spins.get()).floatValue();
+    }
+
+    public boolean isUseRandomSeed()
+    {
+        return ((Boolean) this.useRandomSeed.get()).booleanValue();
+    }
+
+    /** The current persistent random seed (random-seed mode). */
+    public int getRandomSeed()
+    {
+        return this.randomSeed;
+    }
+
+    public int getSeed()
+    {
+        return ((Integer) this.seed.get()).intValue();
+    }
+
+    public boolean canOverlap()
+    {
+        return ((Boolean) this.canOverlap.get()).booleanValue();
+    }
+
+    /** Deterministic per-item seed used for the scatter, stagger, tumble and
+     * (with all-items) item pick. In random-seed mode the persistent
+     * {@link #randomSeed} is the base (stable while playing, re-rollable via
+     * {@link #reshuffle()}); with a fixed seed the user {@link #seed} value is
+     * the base so the layout is identical and timeline-scrubbable. */
+    public int seedFor(int index)
+    {
+        int base = this.isUseRandomSeed() ? this.randomSeed : this.getSeed();
+
+        return base * 31 + index;
     }
 }
