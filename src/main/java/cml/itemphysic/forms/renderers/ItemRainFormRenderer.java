@@ -3,9 +3,12 @@ package cml.itemphysic.forms.renderers;
 import cml.itemphysic.forms.ItemRainForm;
 import cml.itemphysic.physics.ItemDropSimulation;
 import cml.itemphysic.physics.ItemPool;
+import cml.itemphysic.physics.WorldCollision;
 import mchorse.bbs_mod.forms.renderers.FormRenderingContext;
 import mchorse.bbs_mod.forms.renderers.ItemFormRenderer;
+import mchorse.bbs_mod.utils.AABB;
 import net.minecraft.item.ItemStack;
+import net.minecraft.world.World;
 import org.joml.Quaternionf;
 
 import java.util.List;
@@ -18,10 +21,20 @@ import java.util.Random;
  * plus a per-item {@link ItemDropSimulation} fall, draws, then restores the
  * stack.
  *
+ * <p>Collisions are resolved at render time against the live world:</p>
+ * <ul>
+ *     <li><b>Solid ground / blocks</b> via a downward raycast so items rest on
+ *     the actual geometry below the form instead of always at y = 0.</li>
+ *     <li><b>Inter-item</b> overlap is pushed apart (when "overlap" is off) by a
+ *     deterministic post-pass over the baked trajectories.</li>
+ *     <li><b>BBS actors / entities</b> are pushed off their AABBs so items do
+ *     not sink into characters.</li>
+ * </ul>
+ *
  * <p>Everything is derived deterministically from the item index and the form's
- * parameters, so the animation is stable when scrubbing the film timeline. The
- * baked simulations are cached per item and only rebuilt when a physics input
- * (drop height, bounce, spins, count or mode) changes.</p>
+ * parameters (and a per-item seed), so the animation is stable when scrubbing
+ * the film timeline. The baked simulations are cached per item and only rebuilt
+ * when a physics input changes.</p>
  */
 public class ItemRainFormRenderer extends ItemFormRenderer
 {
@@ -39,6 +52,7 @@ public class ItemRainFormRenderer extends ItemFormRenderer
     private float cachedDropHeight = Float.NaN;
     private float cachedBounce = Float.NaN;
     private float cachedSpins = Float.NaN;
+    private int cachedSeed;
 
     public ItemRainFormRenderer(ItemRainForm form)
     {
@@ -73,6 +87,7 @@ public class ItemRainFormRenderer extends ItemFormRenderer
         float dropHeight = form.getDropHeight();
         float bounce = form.getBounce();
         float spins = form.getSpins();
+        int seed = form.isUseRandomSeed() ? form.getRandomSeed() : form.getSeed();
 
         if (this.sims != null
             && count == this.cachedCount
@@ -82,7 +97,8 @@ public class ItemRainFormRenderer extends ItemFormRenderer
             && spread == this.cachedSpread
             && dropHeight == this.cachedDropHeight
             && bounce == this.cachedBounce
-            && spins == this.cachedSpins)
+            && spins == this.cachedSpins
+            && seed == this.cachedSeed)
         {
             return;
         }
@@ -97,10 +113,11 @@ public class ItemRainFormRenderer extends ItemFormRenderer
 
         for (int i = 0; i < count; i++)
         {
-            Random random = new Random(0x9E3779B9L ^ (i * 0x100000001B3L));
+            int itemSeed = form.seedFor(i);
+            Random random = new Random(itemSeed & 0xFFFFFFFFL);
 
             /* Scatter position: a disc of radius "spread" for rain, a tight
-             * cluster (10% of the radius, min a little) for the heap mode. */
+             * cluster (15% of the radius, min a little) for the heap mode. */
             float radius = mode == ItemRainForm.MODE_HEAP ? spread * 0.15F : spread;
             double angle = random.nextDouble() * Math.PI * 2.0;
             double r = Math.sqrt(random.nextDouble()) * radius;
@@ -119,17 +136,24 @@ public class ItemRainFormRenderer extends ItemFormRenderer
             /* Item selection. */
             if (allItems)
             {
-                this.stacks[i] = ItemPool.pick(random.nextInt());
+                this.stacks[i] = ItemPool.pick(itemSeed);
             }
             else
             {
-                ItemStack stack = selected.get(random.nextInt(selected.size())).get();
-                this.stacks[i] = stack == null ? ItemStack.EMPTY : stack;
+                if (selected.isEmpty())
+                {
+                    this.stacks[i] = ItemStack.EMPTY;
+                }
+                else
+                {
+                    ItemStack stack = selected.get(random.nextInt(selected.size())).get();
+                    this.stacks[i] = stack == null ? ItemStack.EMPTY : stack;
+                }
             }
 
-            int seed = this.stacks[i].hashCode() * 31 + i;
+            int simSeed = this.stacks[i].hashCode() * 31 + i;
 
-            this.sims[i] = ItemDropSimulation.bake(dropHeight, bounce, spins, seed);
+            this.sims[i] = ItemDropSimulation.bake(dropHeight, bounce, spins, simSeed);
         }
 
         this.cachedCount = count;
@@ -140,6 +164,7 @@ public class ItemRainFormRenderer extends ItemFormRenderer
         this.cachedDropHeight = dropHeight;
         this.cachedBounce = bounce;
         this.cachedSpins = spins;
+        this.cachedSeed = seed;
     }
 
     @Override
@@ -151,6 +176,94 @@ public class ItemRainFormRenderer extends ItemFormRenderer
 
         float progress = form.getPhysicsProgress();
         ItemStack original = form.stack.get();
+
+        World world = WorldCollision.worldOf(context.entity);
+        mchorse.bbs_mod.utils.pose.Transform transform = this.form.transform.get();
+        double formX = transform.translate.x;
+        double formY = transform.translate.y;
+        double formZ = transform.translate.z;
+
+        /* Real-world ground height (in local space relative to the form). */
+        double groundLocal = 0.0D;
+
+        try
+        {
+            groundLocal = WorldCollision.groundY(world, formX, formY, formZ, formY) - formY;
+        }
+        catch (Exception ignored)
+        {
+        }
+
+        /* Neighbouring entity / actor AABBs for resting support. */
+        List<AABB> entityBoxes = java.util.Collections.emptyList();
+
+        try
+        {
+            entityBoxes = WorldCollision.entityBoxes(world, formX, formY, formZ, Math.max(form.getSpread(), 4.0D) + 2.0D);
+        }
+        catch (Exception ignored)
+        {
+        }
+
+        boolean overlap = form.canOverlap();
+
+        /* Footprint used to group items into stacking columns (so they rest on
+         * top of each other instead of overlapping). */
+        double cell = WorldCollision.ITEM_HALF * 2.0D;
+
+        /* Pre-compute a continuous rest height for every item: the real ground
+         * plus an inter-item stack offset (items sharing a column pile up) plus
+         * any nearby entity/actor top. This value is added to the whole baked
+         * trajectory, so the fall ends exactly at rest with NO end-of-fall jump. */
+        float[] restY = new float[this.sims.length];
+        int[] columnCount = new int[this.sims.length];
+
+        for (int i = 0; i < this.sims.length; i++)
+        {
+            if (this.stacks[i] == null || this.stacks[i].isEmpty())
+            {
+                restY[i] = (float) groundLocal;
+                continue;
+            }
+
+            /* How many earlier items already share this column? They stack. */
+            int stackIndex = 0;
+
+            for (int j = 0; j < i; j++)
+            {
+                if (this.stacks[j] == null || this.stacks[j].isEmpty())
+                {
+                    continue;
+                }
+
+                if (Math.abs(this.offsetX[j] - this.offsetX[i]) <= cell && Math.abs(this.offsetZ[j] - this.offsetZ[i]) <= cell)
+                {
+                    stackIndex++;
+                }
+            }
+
+            columnCount[i] = stackIndex;
+
+            double base = groundLocal + (overlap ? 0.0D : stackIndex * (WorldCollision.ITEM_HALF * 2.0D * 0.85D));
+
+            /* When an entity/actor sits under this column, rest on top of it
+             * instead of (or above) the ground. Continuous: it only shifts the
+             * whole trajectory up, no end jump. */
+            double lx = formX + this.offsetX[i];
+            double lz = formZ + this.offsetZ[i];
+
+            if (!entityBoxes.isEmpty())
+            {
+                double pushed = WorldCollision.resolveAgainst(lx, formY + base, lz, entityBoxes) - formY;
+
+                if (pushed > base)
+                {
+                    base = pushed;
+                }
+            }
+
+            restY[i] = (float) base;
+        }
 
         for (int i = 0; i < this.sims.length; i++)
         {
@@ -187,18 +300,27 @@ public class ItemRainFormRenderer extends ItemFormRenderer
                 p = 1.0F;
             }
 
-            float offsetY = this.sims[i].heightAt(p);
+            /* Baked fall ends at 0; the rest height is added over the WHOLE
+             * trajectory so the motion is continuous and settles exactly on the
+             * real ground / on top of the pile. */
+            float offsetY = this.sims[i].heightAt(p) + restY[i];
             Quaternionf orientation = this.sims[i].orientationAt(p);
 
             form.stack.set(stack);
 
             context.stack.push();
-            context.stack.translate(this.offsetX[i], offsetY, this.offsetZ[i]);
-            context.stack.multiply(orientation);
 
-            super.render3D(context);
+            try
+            {
+                context.stack.translate(this.offsetX[i], offsetY, this.offsetZ[i]);
+                context.stack.multiply(orientation);
 
-            context.stack.pop();
+                super.render3D(context);
+            }
+            finally
+            {
+                context.stack.pop();
+            }
         }
 
         form.stack.set(original);
