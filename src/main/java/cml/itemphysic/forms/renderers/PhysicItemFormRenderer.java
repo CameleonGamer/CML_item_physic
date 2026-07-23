@@ -27,6 +27,7 @@ import org.joml.Quaternionf;
 public class PhysicItemFormRenderer extends ItemFormRenderer
 {
     private ItemDropSimulation sim;
+    private final Quaternionf orientationBuf = new Quaternionf();
     private float cachedDropHeight = Float.NaN;
     private float cachedBounce = Float.NaN;
     private float cachedSpins = Float.NaN;
@@ -84,7 +85,7 @@ public class PhysicItemFormRenderer extends ItemFormRenderer
         ItemDropSimulation simulation = this.simulation(dropHeight, bounce, spins, seed);
 
         float offsetY = simulation.heightAt(p);
-        Quaternionf orientation = simulation.orientationAt(p);
+        simulation.orientationAt(p, this.orientationBuf);
 
         /* Real-world ground: clamp the item so it rests on whatever solid block
          * sits below the form's position instead of always at y = 0. */
@@ -113,7 +114,7 @@ public class PhysicItemFormRenderer extends ItemFormRenderer
         try
         {
             context.stack.translate(0.0F, offsetY, 0.0F);
-            context.stack.multiply(orientation);
+            context.stack.multiply(this.orientationBuf);
 
             super.render3D(context);
         }

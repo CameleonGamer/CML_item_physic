@@ -68,3 +68,10 @@ java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
 }
+
+loom {
+    runClient {
+        jvmArgs("-Dcml.rain.aabb=true")
+        jvmArgs("-Dcml.rain.debug=true")
+    }
+}

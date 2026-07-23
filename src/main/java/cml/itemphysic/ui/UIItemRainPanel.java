@@ -49,6 +49,14 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         v -> ((ItemRainForm) this.form).bounce.set(Float.valueOf(v.floatValue()))
     );
 
+    public final UITrackpad itemOffsetY = new UITrackpad(
+        v -> ((ItemRainForm) this.form).itemOffsetY.set(Float.valueOf(v.floatValue()))
+    );
+
+    public final UITrackpad itemScale = new UITrackpad(
+        v -> ((ItemRainForm) this.form).itemScale.set(Float.valueOf(v.floatValue()))
+    );
+
     public final UIToggle allItems = new UIToggle(
         CMLKeys.FORMS_EDITORS_RAIN_ALL_ITEMS,
         b -> ((ItemRainForm) this.form).allItems.set(b.getValue())
@@ -95,6 +103,8 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         this.dropHeight.tooltip(CMLKeys.FORMS_EDITORS_RAIN_DROP_HEIGHT_TOOLTIP, Direction.RIGHT);
         this.spins.tooltip(CMLKeys.FORMS_EDITORS_RAIN_SPINS_TOOLTIP, Direction.RIGHT);
         this.bounce.tooltip(CMLKeys.FORMS_EDITORS_RAIN_BOUNCE_TOOLTIP, Direction.RIGHT);
+        this.itemOffsetY.tooltip(CMLKeys.FORMS_EDITORS_RAIN_ITEM_OFFSET_Y_TOOLTIP, Direction.RIGHT);
+        this.itemScale.tooltip(CMLKeys.FORMS_EDITORS_RAIN_ITEM_SCALE_TOOLTIP, Direction.RIGHT);
         this.allItems.tooltip(CMLKeys.FORMS_EDITORS_RAIN_ALL_ITEMS_TOOLTIP, Direction.RIGHT);
         this.useRandomSeed.tooltip(CMLKeys.FORMS_EDITORS_RAIN_RANDOM_SEED_TOOLTIP, Direction.RIGHT);
         this.seed.tooltip(CMLKeys.FORMS_EDITORS_RAIN_SEED_TOOLTIP, Direction.RIGHT);
@@ -115,6 +125,10 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
             this.spins,
             UI.label(CMLKeys.FORMS_EDITORS_RAIN_BOUNCE),
             this.bounce,
+            UI.label(CMLKeys.FORMS_EDITORS_RAIN_ITEM_OFFSET_Y),
+            this.itemOffsetY,
+            UI.label(CMLKeys.FORMS_EDITORS_RAIN_ITEM_SCALE),
+            this.itemScale,
             this.allItems,
             UI.label(CMLKeys.FORMS_EDITORS_RAIN_RANDOM_SEED),
             this.useRandomSeed,
@@ -172,6 +186,8 @@ public class UIItemRainPanel extends UIFormPanel<ItemRainForm>
         this.dropHeight.limit(form.dropHeight).setValue(form.getDropHeight());
         this.spins.limit(form.spins).setValue(form.getSpins());
         this.bounce.limit(form.bounce).setValue(form.getBounce());
+        this.itemOffsetY.limit(form.itemOffsetY).setValue(form.getItemOffsetY());
+        this.itemScale.limit(form.itemScale).setValue(form.getItemScale());
         this.allItems.setValue((Boolean) form.allItems.get());
         this.useRandomSeed.setValue((Boolean) form.useRandomSeed.get());
         this.seed.limit(form.seed).setValue(form.getSeed());

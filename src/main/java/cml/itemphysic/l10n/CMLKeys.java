@@ -54,4 +54,8 @@ public class CMLKeys
     public static final IKey FORMS_EDITORS_RAIN_ITEMS = L10n.lang("cml.item_physic.ui.rain.items");
     public static final IKey FORMS_EDITORS_RAIN_ITEMS_COUNT = L10n.lang("cml.item_physic.ui.rain.items_count");
     public static final IKey FORMS_EDITORS_RAIN_CLEAR_ITEMS = L10n.lang("cml.item_physic.ui.rain.clear_items");
+    public static final IKey FORMS_EDITORS_RAIN_ITEM_SCALE = L10n.lang("cml.item_physic.ui.rain.item_scale");
+    public static final IKey FORMS_EDITORS_RAIN_ITEM_SCALE_TOOLTIP = L10n.lang("cml.item_physic.ui.rain.item_scale_tooltip");
+    public static final IKey FORMS_EDITORS_RAIN_ITEM_OFFSET_Y = L10n.lang("cml.item_physic.ui.rain.item_offset_y");
+    public static final IKey FORMS_EDITORS_RAIN_ITEM_OFFSET_Y_TOOLTIP = L10n.lang("cml.item_physic.ui.rain.item_offset_y_tooltip");
 }

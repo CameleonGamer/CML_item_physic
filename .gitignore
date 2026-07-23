@@ -27,3 +27,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated / decompiled sources
+mappings/
+mchorse/
+debug_output.txt

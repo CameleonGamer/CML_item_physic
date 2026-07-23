@@ -43,5 +43,9 @@
   "cml.item_physic.ui.rain.all_items_tooltip": "When enabled (or when the item pool below is empty), items are picked randomly from every item in the game.",
   "cml.item_physic.ui.rain.items": "Item pool",
   "cml.item_physic.ui.rain.items_count": "%s item(s) in pool",
-  "cml.item_physic.ui.rain.clear_items": "Clear pool"
+  "cml.item_physic.ui.rain.clear_items": "Clear pool",
+  "cml.item_physic.ui.rain.item_scale": "Item scale",
+  "cml.item_physic.ui.rain.item_scale_tooltip": "Visual scale multiplier for GROUND-mode item rendering. Higher values make items appear larger.",
+  "cml.item_physic.ui.rain.item_offset_y": "Ground offset Y",
+  "cml.item_physic.ui.rain.item_offset_y_tooltip": "Vertical offset (in blocks) applied on top of the ground-rest position. Use this to compensate for the GROUND-mode rendering shift and fine-tune how items sit on the surface. Negative values push items down into the surface, positive values lift them up."
 }

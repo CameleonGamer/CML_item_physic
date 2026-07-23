@@ -101,19 +101,23 @@ public class ItemDropSimulation
 
         Quaternionf orientation = new Quaternionf();
 
-        boolean settled = false;
-        int settledStep = STEPS;
+        /* Simulate the raw physics into local buffers. We keep integrating until
+         * the object has provably come to rest (sitting on the ground, no
+         * residual velocity), so we capture every bounce regardless of how long
+         * it takes. */
+        float[] rawH = new float[STEPS * 4 + 1];
+        Quaternionf[] rawO = new Quaternionf[STEPS * 4 + 1];
+        int rawSteps = 0;
 
-        /* Minimum upward speed after a bounce for it to count as a real bounce.
-         * Below this the object is considered to have come to rest. */
-        float minBounceSpeed = 0.6F;
+        boolean atRest = false;
 
-        for (int i = 0; i <= STEPS; i++)
+        for (int i = 0; i < rawH.length; i++)
         {
-            this.heights[i] = Math.max(y, 0.0F);
-            this.orientations[i] = new Quaternionf(orientation);
+            rawH[i] = Math.max(y, 0.0F);
+            rawO[i] = new Quaternionf(orientation);
+            rawSteps = i;
 
-            if (settled)
+            if (atRest)
             {
                 continue;
             }
@@ -122,7 +126,7 @@ public class ItemDropSimulation
             vy -= GRAVITY * DT;
             y += vy * DT;
 
-            /* Ground collision. */
+            /* Ground collision with a coefficient of restitution. */
             if (y < 0.0F)
             {
                 y = 0.0F;
@@ -132,23 +136,26 @@ public class ItemDropSimulation
                     float impactSpeed = -vy;
                     vy = impactSpeed * e;
 
-                    /* Impact kills a large chunk of spin (ground friction). */
+                    /* Impact kills a chunk of spin (ground friction). */
                     angularSpeed *= 0.35F;
 
-                    /* If the rebound is too weak to leave the ground, the object
-                     * has settled: freeze it and mark the rest step. */
-                    if (vy < minBounceSpeed || e <= 0.0F)
+                    /* The object is at rest once the rebound height is
+                     * negligible (energy loss model: each bounce keeps a
+                     * fraction e of the speed, so rebound height decays as
+                     * h_n = h_0 * e^(2n)). This gives a smooth, geometrically
+                     * decaying tail of bounces instead of a hard snap. */
+                    float reboundHeight = (vy * vy) / (2.0F * GRAVITY);
+
+                    if (reboundHeight < 0.003F || e <= 0.0F)
                     {
                         vy = 0.0F;
                         angularSpeed = 0.0F;
-                        settled = true;
-                        settledStep = i + 1;
+                        atRest = true;
                     }
                 }
             }
 
-            /* Angular velocity damps over time (air/rolling resistance) and the
-             * tumble eases out as it settles. */
+            /* Angular velocity damps over time (air/rolling resistance). */
             angularSpeed *= 1.0F - angularDamping;
 
             if (Math.abs(angularSpeed) > 1.0E-4F)
@@ -157,18 +164,23 @@ public class ItemDropSimulation
             }
         }
 
-        /* Map progress onto [0, settledStep] so that p=1 is exactly the moment
-         * the item comes to rest at its final position and orientation. Force
-         * the settle step to hold the true resting pose (height 0). */
-        this.restStep = Math.max(1, settledStep);
-        this.heights[this.restStep] = 0.0F;
+        /* Re-sample the raw trajectory so the ENTIRE fall (every bounce) is
+         * stretched across the full [0, 1] progress range. Without this the
+         * bounce happens in a tiny sliver of the timeline and looks like the
+         * item snaps to a stop. */
+        this.restStep = STEPS;
+        int last = Math.max(1, rawSteps);
 
-        Quaternionf finalOrientation = new Quaternionf(this.orientations[this.restStep]);
-
-        for (int i = this.restStep; i <= STEPS; i++)
+        for (int i = 0; i <= STEPS; i++)
         {
-            this.heights[i] = 0.0F;
-            this.orientations[i] = new Quaternionf(finalOrientation);
+            float t = (float) i / (float) STEPS;
+            float f = t * last;
+            int a = (int) f;
+            int b = Math.min(a + 1, last);
+            float w = f - a;
+
+            this.heights[i] = rawH[a] + (rawH[b] - rawH[a]) * w;
+            this.orientations[i] = new Quaternionf(rawO[a]).slerp(rawO[b], w);
         }
     }
 
@@ -187,7 +199,26 @@ public class ItemDropSimulation
         return this.heights[i] + (this.heights[i + 1] - this.heights[i]) * t;
     }
 
-    /** Interpolated orientation at normalized progress p in [0, 1]. */
+    /** Interpolated orientation at normalized progress p in [0, 1],
+     *  stored into {@code out} to avoid allocation. */
+    public void orientationAt(float p, Quaternionf out)
+    {
+        float f = this.clamp01(p) * this.restStep;
+        int i = (int) f;
+        float t = f - i;
+
+        if (i >= this.restStep)
+        {
+            out.set(this.orientations[this.restStep]);
+        }
+        else
+        {
+            this.orientations[i].slerp(this.orientations[i + 1], t, out);
+        }
+    }
+
+    /** Deprecated — allocates. Prefer {@link #orientationAt(float, Quaternionf)}. */
+    @Deprecated
     public Quaternionf orientationAt(float p)
     {
         float f = this.clamp01(p) * this.restStep;
@@ -205,15 +236,5 @@ public class ItemDropSimulation
     private float clamp01(float v)
     {
         return v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
-    }
-
-    public int getRestStep()
-    {
-        return this.restStep;
-    }
-
-    public int getTotalSteps()
-    {
-        return STEPS;
     }
 }
