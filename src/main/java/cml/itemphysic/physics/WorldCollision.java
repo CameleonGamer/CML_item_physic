@@ -4,8 +4,6 @@ import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.utils.AABB;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.item.ItemRenderState;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.ItemStack;
@@ -19,35 +17,17 @@ import net.minecraft.world.World;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Real-world collision helpers used at render time to resolve the baked
- * trajectory against the live Minecraft world:
- * <ul>
- *     <li>solid ground / block collision (downward raycast against the world);</li>
- *     <li>BBS actors and other Minecraft entities (their AABBs).</li>
- * </ul>
- */
 public final class WorldCollision
 {
-    /** Base half-extent (blocks) used to scale model proportions. */
     public static final double ITEM_HALF = 0.5D;
 
-    /**
-     * Half-extents (X, Y, Z) for a given item stack. Computed from the item's
-     * actual {@link BakedModel} vertices, scaled by the display transform for
-     * the given {@code ModelTransformationMode}. Falls back to the old
-     * collision-shape-based estimate for block items, then to {@link #ITEM_HALF}.
-     *
-     * @return array of [halfX, halfY, halfZ] in world-space blocks
-     */
-    public static double[] itemHalfExtents(ItemStack stack, net.minecraft.item.ModelTransformationMode mode)
+    public static double[] itemHalfExtents(ItemStack stack)
     {
         if (stack == null || stack.isEmpty())
             return new double[] { ITEM_HALF, ITEM_HALF, ITEM_HALF };
 
         double rawX, rawY, rawZ;
 
-        /* --- block items → use the block's collision shape (true 3D) --- */
         if (stack.getItem() instanceof BlockItem blockItem)
         {
             try
@@ -73,33 +53,19 @@ public final class WorldCollision
             }
         }
 
-        /* --- non-block items → use hasDepth() to distinguish 3D vs flat --- */
-        try
+        /* Non-block items: damageable items (tools, weapons) are 3D; stackable
+         * items (food, plates, etc.) are flat.  This avoids depending on the
+         * version-specific item model API (ItemRenderState vs BakedModel). */
+        if (stack.isDamageable())
         {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            ItemRenderState renderState = new ItemRenderState();
-            mc.getItemModelManager().update(renderState, stack, mode, false, null, null, 0);
-
-            if (!renderState.isEmpty())
-            {
-                if (renderState.hasDepth())
-                {
-                    return new double[] { ITEM_HALF, ITEM_HALF, ITEM_HALF };
-                }
-                else
-                {
-                    return new double[] { ITEM_HALF, ITEM_HALF * 0.25D, ITEM_HALF };
-                }
-            }
+            return new double[] { ITEM_HALF, ITEM_HALF, ITEM_HALF };
         }
-        catch (Exception ignored)
+        else
         {
+            return new double[] { ITEM_HALF, ITEM_HALF * 0.25D, ITEM_HALF };
         }
-
-        return new double[] { ITEM_HALF, ITEM_HALF, ITEM_HALF };
     }
 
-    /** Scale proportions so the largest axis === ITEM_HALF. */
     private static double[] normalizeShape(double x, double y, double z)
     {
         double max = Math.max(x, Math.max(y, z));
@@ -112,10 +78,9 @@ public final class WorldCollision
         };
     }
 
-    /** Legacy single-value API (kept for backward compat with groundY/resolveAgainst). */
-    public static double itemHalf(ItemStack stack, net.minecraft.item.ModelTransformationMode mode)
+    public static double itemHalf(ItemStack stack)
     {
-        double[] extents = itemHalfExtents(stack, mode);
+        double[] extents = itemHalfExtents(stack);
         return Math.max(extents[0], Math.max(extents[1], extents[2]));
     }
 
@@ -123,10 +88,6 @@ public final class WorldCollision
     {
     }
 
-    /** Returns the Y (block coordinate) of the highest solid surface directly
-     * below {@code originX/originY/originZ}, or {@code fallbackY} if there is no
-     * world or no solid block within a sane range. The returned value already
-     * accounts for the item's half-height so the item rests on top. */
     public static double groundY(World world, double originX, double originY, double originZ, double fallbackY)
     {
         if (world == null)
@@ -154,9 +115,6 @@ public final class WorldCollision
         return fallbackY;
     }
 
-    /** All solid/collidable AABBs (BBS format) near the given point: one for
-     * each nearby Minecraft entity / BBS actor (excluding {@code exclude}).
-     * Used to push items off actors. */
     public static List<AABB> entityBoxes(World world, double ox, double oy, double oz, double range, Entity exclude)
     {
         List<AABB> boxes = new ArrayList<>();
@@ -181,9 +139,6 @@ public final class WorldCollision
         return boxes;
     }
 
-    /** Resolves the item AABB at {@code (x, y, z)} against a set of obstacle
-     * AABBs, pushing it out along the smallest-penetration axis. Returns the
-     * corrected Y (the only axis we nudge for resting support). */
     public static double resolveAgainst(double x, double y, double z, double half, List<AABB> obstacles)
     {
         AABB item = new AABB(x - half, y - half, z - half, half * 2.0D, half * 2.0D, half * 2.0D);
@@ -202,7 +157,6 @@ public final class WorldCollision
         return bestY;
     }
 
-    /** Convenience: world accessor from a rendering context's entity. */
     public static World worldOf(IEntity entity)
     {
         return entity == null ? null : entity.getWorld();

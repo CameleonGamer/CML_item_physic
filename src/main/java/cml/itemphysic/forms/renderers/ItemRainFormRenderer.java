@@ -139,8 +139,7 @@ public class ItemRainFormRenderer extends ItemFormRenderer
                 float itemScale = form.getItemScale();
                 context.stack.scale(itemScale, itemScale, itemScale);
 
-                ItemSolidRender.render(context.stack, stack, world, context.light,
-                    net.minecraft.item.ModelTransformationMode.GROUND);
+                super.render3D(context);
             }
             finally
             {

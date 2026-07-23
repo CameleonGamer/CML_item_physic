@@ -341,7 +341,7 @@ public class ItemRainForm extends ItemForm
                 continue;
             }
 
-            double[] halfExtents = WorldCollision.itemHalfExtents(stack, net.minecraft.item.ModelTransformationMode.GROUND);
+            double[] halfExtents = WorldCollision.itemHalfExtents(stack);
             ItemBody body = new ItemBody(stack,
                 halfExtents[0] * itemScale, halfExtents[1] * itemScale, halfExtents[2] * itemScale);
 
