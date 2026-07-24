@@ -238,6 +238,24 @@ public class ItemRainSim
             }
         }
 
+        /* 8c. Final velocity damping — eliminate any residual velocity that might
+         * cause items to jitter or "fly" at the end of the simulation. */
+        for (ItemBody b : bodies)
+        {
+            if (!b.spawned || b.settled) continue;
+            
+            /* Damp any remaining velocity to prevent final-frame jitter */
+            b.vel.x *= 0.8D;
+            b.vel.y *= 0.8D;
+            b.vel.z *= 0.8D;
+            
+            /* If velocity is very small, zero it to prevent micro-movement */
+            if (b.vel.lengthSquared() < STOP_SPEED * STOP_SPEED)
+            {
+                b.vel.set(0.0D, 0.0D, 0.0D);
+            }
+        }
+
         /* 9. Velocity resolution — called once after positions are settled.
          * Applies restitution + friction along the collision normal. */
         resolveVelocities(bodies);
@@ -331,9 +349,10 @@ public class ItemRainSim
             }
 
             boolean overlapping = overlapsAny(b, bodies, SETTLE_OVERLAP_EPSILON);
-            boolean slow = b.vel.lengthSquared() < (STOP_SPEED * 4.0D) * (STOP_SPEED * 4.0D);
+            boolean slow = b.vel.lengthSquared() < (STOP_SPEED * 2.0D) * (STOP_SPEED * 2.0D);  // Stricter threshold
+            boolean stableOrientation = Math.abs(b.quat.w) > 0.999f;  // Nearly identity
 
-            if (!overlapping && slow && supported[i])
+            if (!overlapping && slow && supported[i] && stableOrientation)
             {
                 b.vel.set(0.0D, 0.0D, 0.0D);
                 b.spinSpeed = 0.0F;
@@ -341,16 +360,14 @@ public class ItemRainSim
             }
         }
 
-        /* 13. Gentle righting toward identity for supported items.  Without
-         * this, items settle with whatever random orientation the spin
-         * history left them at.  The righting rate is proportional to tilt
-         * so the motion is unnoticeable per-frame yet completes by the
-         * final frame for items that land early. */
+        /* 13. Gentle righting toward identity for supported NON-settled items only.
+         * Settled items should already be stable and not move. The righting rate
+         * is proportional to tilt so the motion is unnoticeable per-frame. */
         Quaternionf id = new Quaternionf();
         for (int i = 0; i < bodies.length; i++)
         {
             ItemBody b = bodies[i];
-            if (!b.spawned) continue;
+            if (!b.spawned || b.settled) continue;
             if (!supported[i]) continue;
 
             float align = Math.abs(b.quat.w);
