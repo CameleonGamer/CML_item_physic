@@ -3,6 +3,9 @@ package cml.itemphysic.physics;
 import org.joml.Quaternionf;
 import org.joml.Vector3d;
 
+import java.util.Arrays;
+import java.util.Random;
+
 /**
  * Deterministic baked sandbox simulation for {@link cml.itemphysic.forms.ItemRainForm}.
  *
@@ -28,34 +31,28 @@ public class ItemRainSim
     private static final double DT = 1.0D / 60.0D;
     private static final double EPSILON = 1.0E-4D;
     private static final double SETTLE_OVERLAP_EPSILON = 5.0E-4D;
-    private static final int SOLVER_ITERATIONS = 128;
-    private static final double MAX_VELOCITY = 40.0D;
+    private static final double SUPPORT_GAP_THRESHOLD = 0.02D;
+    private static final double MIN_SUPPORT_THICKNESS = 0.04D;  // Minimum effective thickness for support detection
+    private static final double MAX_VELOCITY = 10.0D;
     private static final double MAX_VELOCITY_SQ = MAX_VELOCITY * MAX_VELOCITY;
 
-    /** Maximum vertical gap (blocks) between a body's bottom and another body's
-     *  top for the pair to be considered "resting contact" in the support-chain
-     *  propagation ({@link #computeSupported}).  Must be well above
-     *  {@link #EPSILON} (the minimum separation the position solver guarantees),
-     *  but small enough to reject bodies that are merely near each other.  0.01
-     *  blocks (~1 cm in Minecraft) is a safe middle ground. */
-    private static final double SUPPORT_GAP_THRESHOLD = 0.02D;
-    private static final double MIN_SUPPORT_HEIGHT = 0.04D;  // Minimum height for support detection
-    private static final double MIN_SUPPORT_THICKNESS = 0.06D;  // Minimum effective thickness for support detection
-
     /** Per-frame world-space state of every body. */
-    public static class Frame
+    public static final class Frame
     {
-        public final float[] x;
-        public final float[] y;
-        public final float[] z;
+        public final float[] x, y, z;
         public final Quaternionf[] q;
 
-        Frame(int n)
+        public Frame(int n)
         {
             this.x = new float[n];
             this.y = new float[n];
             this.z = new float[n];
             this.q = new Quaternionf[n];
+
+            for (int i = 0; i < n; i++)
+            {
+                this.q[i] = new Quaternionf();
+            }
         }
     }
 
@@ -63,20 +60,46 @@ public class ItemRainSim
     public final Frame[] frames;
     public final float[] spawnProgress;
 
-    private ItemRainSim(ItemBody[] bodies, float[] spawnProgress)
+    private ItemRainSim(ItemBody[] bodies, float[] spawn)
     {
         this.bodies = bodies;
-        this.spawnProgress = spawnProgress;
+        this.spawnProgress = spawn;
         this.frames = new Frame[FRAMES + 1];
 
-        for (int f = 0; f <= FRAMES; f++)
+        for (int i = 0; i <= FRAMES; i++)
         {
-            this.frames[f] = new Frame(bodies.length);
+            this.frames[i] = new Frame(bodies.length);
         }
     }
 
-    /** Bakes the sandbox once. {@code spawnInterval} is the fraction of the
-     * timeline over which items appear progressively (rain). */
+    /** Returns the frame index for a given progress in [0, 1]. */
+    public int frameIndex(double progress)
+    {
+        return Math.min(FRAMES, (int) (progress * FRAMES));
+    }
+
+    /** Returns the progress in [0, 1] for a given frame index. */
+    public double frameProgress(int frame)
+    {
+        return (double) frame / FRAMES;
+    }
+
+    /** Returns the current progress in [0, 1]. */
+    public double getProgress()
+    {
+        return this.frameProgress(this.frameIndex(1.0D));
+    }
+
+    /**
+     * Bakes a deterministic simulation of {@code bodies} falling under gravity
+     * and colliding with each other.  The simulation is cached and only re-run
+     * when one of its input parameters (drop height, bounce, spins or the item
+     * seed) actually changes.
+     *
+     * @param bodies        the bodies to simulate (must not be modified after)
+     * @param spawnInterval time (seconds) between successive spawns
+     * @return a baked simulation with {@link #FRAMES} + 1 frames
+     */
     public static ItemRainSim bake(ItemBody[] bodies, double spawnInterval)
     {
         int n = bodies.length;
@@ -106,7 +129,7 @@ public class ItemRainSim
                 sim.frames[f].x[i] = (float) bodies[i].pos.x;
                 sim.frames[f].y[i] = (float) bodies[i].pos.y;
                 sim.frames[f].z[i] = (float) bodies[i].pos.z;
-                sim.frames[f].q[i] = new Quaternionf(bodies[i].quat);
+                sim.frames[f].q[i].set(bodies[i].quat);
             }
 
             step(bodies);
@@ -160,7 +183,7 @@ public class ItemRainSim
          * at the START of every iteration so that the MTV resolver cannot
          * push bodies above the ground.  Without this, items on the ground
          * gradually float upward as lateral MTV corrections accumulate. */
-        for (int iteration = 0; iteration < SOLVER_ITERATIONS; iteration++)
+        for (int iteration = 0; iteration < 128; iteration++)
         {
             /* 4a. Floor collision (uses effY for the rest height so the
              * rotated box sits flush on the ground). */
@@ -179,18 +202,12 @@ public class ItemRainSim
 
                     if (b.vel.y < 0.0D)
                     {
-                        /* Apply restitution with damping to prevent perpetual bouncing */
                         b.vel.y = -b.vel.y * RESTITUTION * 0.95D;
                     }
 
                     b.vel.x *= FRICTION;
                     b.vel.z *= FRICTION;
                     b.spinSpeed *= 0.4F;
-
-                    if (Math.abs(b.vel.y) < STOP_SPEED)
-                    {
-                        b.vel.y = 0.0D;
-                    }
                 }
             }
 
@@ -214,46 +231,39 @@ public class ItemRainSim
                 b.pos.y = b.effY;
                 if (b.vel.y < 0.0D)
                 {
-                    b.vel.y = -b.vel.y * RESTITUTION;
+                    b.vel.y = -b.vel.y * RESTITUTION * 0.95D;
                     if (Math.abs(b.vel.y) < STOP_SPEED) b.vel.y = 0.0D;
                 }
                 b.vel.x *= FRICTION;
                 b.vel.z *= FRICTION;
             }
         }
-
-        /* 8b. Final support correction — ensure all items are properly supported
-         * after the main solver pass. This catches items that might have been
-         * pushed slightly above their support during collision resolution. */
-        boolean[] finalSupported = computeSupported(bodies);
-        for (int i = 0; i < bodies.length; i++)
-        {
-            ItemBody b = bodies[i];
-            if (!b.spawned || b.settled || finalSupported[i]) continue;
-            
-            /* If an item is not supported but is very close to the ground,
-             * force it to be supported to prevent floating */
-            if (b.pos.y <= b.effY + SUPPORT_GAP_THRESHOLD + MIN_SUPPORT_THICKNESS)
-            {
-                b.pos.y = b.effY;
-            }
-        }
-
-        /* 8c. Final velocity damping — eliminate any residual velocity that might
-         * cause items to jitter or "fly" at the end of the simulation. */
+        
+        /* 8b. Final position correction — ensure no item is below ground */
         for (ItemBody b : bodies)
         {
             if (!b.spawned || b.settled) continue;
-            
-            /* Damp any remaining velocity to prevent final-frame jitter */
-            b.vel.x *= 0.8D;
-            b.vel.y *= 0.8D;
-            b.vel.z *= 0.8D;
-            
-            /* If velocity is very small, zero it to prevent micro-movement */
-            if (b.vel.lengthSquared() < STOP_SPEED * STOP_SPEED)
+            if (b.pos.y < b.effY)
             {
-                b.vel.set(0.0D, 0.0D, 0.0D);
+                b.pos.y = b.effY;
+                b.vel.y = Math.max(0, b.vel.y);  // Prevent negative velocity
+            }
+        }
+
+        /* 8c. Final support correction — ensure all items are properly supported
+         * after the main solver pass. This catches items that might have been
+         * pushed slightly above their support during collision resolution. */
+        boolean[] supported = computeSupported(bodies);
+        for (int i = 0; i < bodies.length; i++)
+        {
+            ItemBody b = bodies[i];
+            if (!b.spawned || b.settled || supported[i]) continue;
+            
+            /* If an item is not supported but is very close to the ground,
+             * force it to be supported to prevent floating */
+            if (b.pos.y <= b.effY + SUPPORT_GAP_THRESHOLD)
+            {
+                b.pos.y = b.effY;
             }
         }
 
@@ -277,27 +287,11 @@ public class ItemRainSim
             }
         }
 
-        computeRotatedAABBs(bodies);
-
-        /* 9c. Keep settled items locked to their support surface.  Spin
-         * damping changes effY gradually, and without adjustment settled
-         * items would float above or sink into the ground.  Only items near
-         * the floor (pos.y ≈ effY) are adjusted — items on top of other
-         * items are handled naturally by the solver in subsequent frames. */
-        for (ItemBody b : bodies)
-        {
-            if (!b.spawned || !b.settled) continue;
-            if (b.pos.y <= b.effY + SUPPORT_GAP_THRESHOLD)
-            {
-                b.pos.y = b.effY;
-            }
-        }
-
         /* 10. Compute support chain — which bodies rest on the floor or on
          * another body that ultimately touches the floor.  A body floating
          * in mid-air (no support) must NOT settle, even if it happens to be
          * slow and non-overlapping, or it would freeze mid-fall. */
-        boolean[] supported = computeSupported(bodies);
+        supported = computeSupported(bodies);
 
         /* 11. Kill residual vertical velocity on supported bodies and on
          * non-overlapping bodies with tiny Y velocity.  The PBD velocity
@@ -350,8 +344,8 @@ public class ItemRainSim
             }
 
             boolean overlapping = overlapsAny(b, bodies, SETTLE_OVERLAP_EPSILON);
-            boolean slow = b.vel.lengthSquared() < (STOP_SPEED * 2.0D) * (STOP_SPEED * 2.0D);  // Stricter threshold
-            boolean stableOrientation = Math.abs(b.quat.w) > 0.999f;  // Nearly identity
+            boolean slow = b.vel.lengthSquared() < (STOP_SPEED * 4.0D) * (STOP_SPEED * 4.0D);
+            boolean stableOrientation = Math.abs(b.quat.w) > 0.9995f;  // Stricter: nearly identity
 
             if (!overlapping && slow && supported[i] && stableOrientation)
             {
@@ -418,120 +412,14 @@ public class ItemRainSim
         }
     }
 
-    /** Tests two OBBs for overlap using the Separating Axis Theorem (SAT).
-     *  Returns the penetration depth (positive if overlapping, &le;0 if not)
-     *  and sets {@code normal} to the unit-length collision normal (pointing
-     *  from {@code b} toward {@code a}).  No allocations.
+    /**
+     * Iterated positional resolution (PBD).  Resolves overlaps by pushing
+     * bodies apart along the Minimum Translation Vector (MTV) of their
+     * Separating Axis Theorem (SAT) collision.  The MTV is the smallest
+     * displacement that separates the two OBBs.
      *
-     *  <p>A tolerance of {@link #EPSILON} is used on the separating-axis test so
-     *  that floating-point noise on nearly-degenerate cross-product axes does
-     *  not produce false-positive overlaps.</p> */
-    private static double satOverlap(ItemBody a, ItemBody b, Vector3d normal)
-    {
-        double dx = a.pos.x - b.pos.x;
-        double dy = a.pos.y - b.pos.y;
-        double dz = a.pos.z - b.pos.z;
-
-        if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON && Math.abs(dz) < EPSILON)
-        {
-            normal.set(0.0D, 1.0D, 0.0D);
-            return a.effY + b.effY;
-        }
-
-        /* Local axes (columns of the 3×3 rotation matrix). */
-        float a0x = a.ax, a0y = a.ay, a0z = a.az;
-        float a1x = a.bx, a1y = a.by, a1z = a.bz;
-        float a2x = a.cx, a2y = a.cy, a2z = a.cz;
-        float b0x = b.ax, b0y = b.ay, b0z = b.az;
-        float b1x = b.bx, b1y = b.by, b1z = b.bz;
-        float b2x = b.cx, b2y = b.cy, b2z = b.cz;
-
-        double ahX = a.halfX, ahY = a.halfY, ahZ = a.halfZ;
-        double bhX = b.halfX, bhY = b.halfY, bhZ = b.halfZ;
-
-        double bestDepth = Double.MAX_VALUE;
-        float bestNx = 0, bestNy = 0, bestNz = 0;
-
-        /* Test the 15 axes: 3 body A axes, 3 body B axes, 9 cross products. */
-        for (int pass = 0; pass < 3; pass++)
-        {
-            int start = pass == 0 ? 0 : pass == 1 ? 3 : 6;
-            int end   = pass == 0 ? 3 : pass == 1 ? 6 : 15;
-            for (int idx = start; idx < end; idx++)
-            {
-                boolean cross = idx >= 6;
-                double nx, ny, nz;
-
-                if (cross)
-                {
-                    int ai = (idx - 6) / 3, bi = (idx - 6) % 3;
-                    float axx = ai == 0 ? a0x : ai == 1 ? a1x : a2x;
-                    float axy = ai == 0 ? a0y : ai == 1 ? a1y : a2y;
-                    float axz = ai == 0 ? a0z : ai == 1 ? a1z : a2z;
-                    float bxx = bi == 0 ? b0x : bi == 1 ? b1x : b2x;
-                    float bxy = bi == 0 ? b0y : bi == 1 ? b1y : b2y;
-                    float bxz = bi == 0 ? b0z : bi == 1 ? b1z : b2z;
-                    float cx = axy * bxz - axz * bxy;
-                    float cy = axz * bxx - axx * bxz;
-                    float cz = axx * bxy - axy * bxx;
-                    double lenSq = (double) cx * cx + (double) cy * cy + (double) cz * cz;
-                    if (lenSq < 1.0E-10D) continue;
-                    double inv = 1.0D / Math.sqrt(lenSq);
-                    nx = cx * inv; ny = cy * inv; nz = cz * inv;
-                }
-                else if (idx < 3)
-                {
-                    nx = idx == 0 ? a0x : idx == 1 ? a1x : a2x;
-                    ny = idx == 0 ? a0y : idx == 1 ? a1y : a2y;
-                    nz = idx == 0 ? a0z : idx == 1 ? a1z : a2z;
-                }
-                else
-                {
-                    int bi = idx - 3;
-                    nx = bi == 0 ? b0x : bi == 1 ? b1x : b2x;
-                    ny = bi == 0 ? b0y : bi == 1 ? b1y : b2y;
-                    nz = bi == 0 ? b0z : bi == 1 ? b1z : b2z;
-                }
-
-                double dA0 = nx * a0x + ny * a0y + nz * a0z;
-                double dA1 = nx * a1x + ny * a1y + nz * a1z;
-                double dA2 = nx * a2x + ny * a2y + nz * a2z;
-                double rA = ahX * Math.abs(dA0) + ahY * Math.abs(dA1) + ahZ * Math.abs(dA2);
-
-                double dB0 = nx * b0x + ny * b0y + nz * b0z;
-                double dB1 = nx * b1x + ny * b1y + nz * b1z;
-                double dB2 = nx * b2x + ny * b2y + nz * b2z;
-                double rB = bhX * Math.abs(dB0) + bhY * Math.abs(dB1) + bhZ * Math.abs(dB2);
-
-                double cDist = Math.abs(dx * nx + dy * ny + dz * nz);
-
-                double depth = rA + rB - cDist;
-                /* Separating axis with tolerance for FP noise. */
-                if (depth <= -EPSILON) return -1.0D;
-
-                if (depth < bestDepth)
-                {
-                    bestDepth = depth;
-                    bestNx = (float) nx; bestNy = (float) ny; bestNz = (float) nz;
-                }
-            }
-        }
-
-        /* If the best depth is below noise threshold, treat as non-overlapping. */
-        if (bestDepth <= EPSILON) return -1.0D;
-
-        /* Ensure normal points from B toward A. */
-        double dot = dx * bestNx + dy * bestNy + dz * bestNz;
-        if (dot < 0.0D) { bestNx = -bestNx; bestNy = -bestNy; bestNz = -bestNz; }
-
-        normal.set(bestNx, bestNy, bestNz);
-        return bestDepth;
-    }
-
-    /** Resolves every overlapping pair using SAT-based OBB collision detection
-     *  with position-only correction along the true collision normal.  Per-axis
-     *  inverse masses are preserved so floor-contact bodies keep infinite mass
-     *  on Y (preventing ground penetration) while still sliding laterally. */
+     * @return true if any overlap was resolved
+     */
     private static boolean resolvePositions(ItemBody[] bodies)
     {
         boolean any = false;
@@ -541,27 +429,34 @@ public class ItemRainSim
         {
             ItemBody a = bodies[i];
 
-            if (!a.spawned || !finite(a.pos))
-            {
-                continue;
-            }
+            if (!a.spawned || !finite(a.pos)) continue;
 
             for (int j = 0; j < i; j++)
             {
                 ItemBody b = bodies[j];
 
                 if (!b.spawned) continue;
-
-                /* Both fully settled → skip (should not overlap if stable). */
                 if (a.settled && b.settled) continue;
 
-                /* SAT OBB-OBB test. */
-                double depth = satOverlap(a, b, normal);
-                if (depth <= 0.0D) continue;
+                /* Broad-phase AABB check — skip well-separated pairs. */
+                double dx = Math.abs(a.pos.x - b.pos.x);
+                double dy = Math.abs(a.pos.y - b.pos.y);
+                double dz = Math.abs(a.pos.z - b.pos.z);
+                double rx = a.effX + b.effX;
+                double ry = a.effY + b.effY;
+                double rz = a.effZ + b.effZ;
+                if (dx > rx * 4.0D || dy > ry * 4.0D || dz > rz * 4.0D) continue;
 
-                any = true;
+                /* SAT contact normal (finds the minimum-penetration axis even
+                 * for exactly-touching pairs after position resolution). */
+                double depth = satContact(a, b, normal);
+                double nx = normal.x, ny = normal.y, nz = normal.z;
 
-                /* Per-axis inverse masses (same model as before). */
+                /* Only process overlapping or touching pairs (depth >= -EPSILON
+                 * to allow exactly-touching stacked bodies to receive impulses). */
+                if (depth < -EPSILON) continue;
+
+                /* Per-axis inverse masses. */
                 double imX_A = a.settled ? 0.0D : 1.0D;
                 double imY_A = (a.settled || a.pos.y <= a.effY + EPSILON) ? 0.0D : 1.0D;
                 double imZ_A = a.settled ? 0.0D : 1.0D;
@@ -569,76 +464,66 @@ public class ItemRainSim
                 double imY_B = (b.settled || b.pos.y <= b.effY + EPSILON) ? 0.0D : 1.0D;
                 double imZ_B = b.settled ? 0.0D : 1.0D;
 
-                double nx = normal.x, ny = normal.y, nz = normal.z;
-                double pen = depth;
+                /* Effective inverse mass along the normal direction. */
+                double wA = imX_A * nx * nx + imY_A * ny * ny + imZ_A * nz * nz;
+                double wB = imX_B * nx * nx + imY_B * ny * ny + imZ_B * nz * nz;
+                double totalW = wA + wB;
 
-                /* Push along the full 3D SAT normal, weighted by per-axis
-                 * inverse masses.  This lets items slide apart along the
-                 * true collision direction instead of being constrained to
-                 * a single world axis. */
-                double totalX = imX_A + imX_B;
-                double totalY = imY_A + imY_B;
-                double totalZ = imZ_A + imZ_B;
+                if (totalW < EPSILON) continue;
 
-                double sx = pen * nx;
-                double sy = pen * ny;
-                double sz = pen * nz;
+                /* Push the bodies apart along the normal. */
+                double correction = depth / totalW;
+                double cx = nx * correction;
+                double cy = ny * correction;
+                double cz = nz * correction;
 
-                if (totalX >= EPSILON)
+                if (!a.settled)
                 {
-                    double rA = imX_A / totalX, rB = imX_B / totalX;
-                    a.pos.x += sx * rA;
-                    b.pos.x -= sx * rB;
+                    a.pos.x -= cx * wA;
+                    a.pos.y -= cy * wA;
+                    a.pos.z -= cz * wA;
                 }
-                if (totalY >= EPSILON)
+                if (!b.settled)
                 {
-                    double rA = imY_A / totalY, rB = imY_B / totalY;
-                    a.pos.y += sy * rA;
-                    b.pos.y -= sy * rB;
+                    b.pos.x += cx * wB;
+                    b.pos.y += cy * wB;
+                    b.pos.z += cz * wB;
                 }
-                if (totalZ >= EPSILON)
-                {
-                    double rA = imZ_A / totalZ, rB = imZ_B / totalZ;
-                    a.pos.z += sz * rA;
-                    b.pos.z -= sz * rB;
-                }
+
+                any = true;
             }
         }
 
         return any;
     }
 
-    /** Finds the SAT collision normal between two OBBs regardless of whether
-     *  they currently overlap.  Returns the normal (pointing from B toward A)
-     *  and the penetration depth (negative if separated).  Used by the
-     *  velocity resolver so that restitution is applied even to pairs that
-     *  are exactly touching (depth ≈ 0) after position resolution. */
+    /**
+     * Separating Axis Theorem (SAT) contact detection for two OBBs.
+     * Returns the penetration depth along the separating axis with the
+     * smallest overlap, or -1 if the OBBs do not overlap.  The normal is set
+     * to the separating axis (pointing from a to b).
+     */
     private static double satContact(ItemBody a, ItemBody b, Vector3d normal)
     {
-        double depth = satOverlap(a, b, normal);
-        if (depth > 0.0D) return depth;
-        /* Find the minimum separation / maximum overlap axis without the
-         * EPSILON threshold — this gives us the contact normal even for
-         * exactly-touching pairs. */
-        double dx = a.pos.x - b.pos.x;
-        double dy = a.pos.y - b.pos.y;
-        double dz = a.pos.z - b.pos.z;
+        /* Relative position (b - a). */
+        double dx = b.pos.x - a.pos.x;
+        double dy = b.pos.y - a.pos.y;
+        double dz = b.pos.z - a.pos.z;
 
-        if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON && Math.abs(dz) < EPSILON)
+        /* Early-out if the centers are too far apart. */
+        double rSum = a.effX + a.effY + a.effZ + b.effX + b.effY + b.effZ;
+        if (Math.abs(dx) > rSum || Math.abs(dy) > rSum || Math.abs(dz) > rSum)
         {
-            normal.set(0.0D, 1.0D, 0.0D);
-            return a.effY + b.effY;
+            return -1.0D;
         }
 
+        /* Local axes of a and b in world space. */
         float a0x = a.ax, a0y = a.ay, a0z = a.az;
         float a1x = a.bx, a1y = a.by, a1z = a.bz;
         float a2x = a.cx, a2y = a.cy, a2z = a.cz;
         float b0x = b.ax, b0y = b.ay, b0z = b.az;
         float b1x = b.bx, b1y = b.by, b1z = b.bz;
         float b2x = b.cx, b2y = b.cy, b2z = b.cz;
-
-        double ahX = a.halfX, ahY = a.halfY, ahZ = a.halfZ;
-        double bhX = b.halfX, bhY = b.halfY, bhZ = b.halfZ;
 
         double bestDepth = Double.MAX_VALUE;
         float bestNx = 0, bestNy = 0, bestNz = 0;
@@ -671,9 +556,10 @@ public class ItemRainSim
                 }
                 else if (idx < 3)
                 {
-                    nx = idx == 0 ? a0x : idx == 1 ? a1x : a2x;
-                    ny = idx == 0 ? a0y : idx == 1 ? a1y : a2y;
-                    nz = idx == 0 ? a0z : idx == 1 ? a1z : a2z;
+                    int ai = idx;
+                    nx = ai == 0 ? a0x : ai == 1 ? a1x : a2x;
+                    ny = ai == 0 ? a0y : ai == 1 ? a1y : a2y;
+                    nz = ai == 0 ? a0z : ai == 1 ? a1z : a2z;
                 }
                 else
                 {
@@ -686,18 +572,18 @@ public class ItemRainSim
                 double dA0 = nx * a0x + ny * a0y + nz * a0z;
                 double dA1 = nx * a1x + ny * a1y + nz * a1z;
                 double dA2 = nx * a2x + ny * a2y + nz * a2z;
-                double rA = ahX * Math.abs(dA0) + ahY * Math.abs(dA1) + ahZ * Math.abs(dA2);
+                double rA = a.halfX * Math.abs(dA0) + a.halfY * Math.abs(dA1) + a.halfZ * Math.abs(dA2);
 
                 double dB0 = nx * b0x + ny * b0y + nz * b0z;
                 double dB1 = nx * b1x + ny * b1y + nz * b1z;
                 double dB2 = nx * b2x + ny * b2y + nz * b2z;
-                double rB = bhX * Math.abs(dB0) + bhY * Math.abs(dB1) + bhZ * Math.abs(dB2);
+                double rB = b.halfX * Math.abs(dB0) + b.halfY * Math.abs(dB1) + b.halfZ * Math.abs(dB2);
 
-        double cDist = Math.abs(dx * nx + dy * ny + dz * nz);
-        double d = rA + rB - cDist;
+                double cDist = Math.abs(dx * nx + dy * ny + dz * nz);
+                double d = rA + rB - cDist;
 
-        /* Add small epsilon to prevent micro-collisions from being missed */
-        if (d < bestDepth && d > -1.0E-4D)
+                /* Add small epsilon to prevent micro-collisions from being missed */
+                if (d < bestDepth && d > -1.0E-5D)
                 {
                     bestDepth = d;
                     bestNx = (float) nx; bestNy = (float) ny; bestNz = (float) nz;
@@ -713,8 +599,7 @@ public class ItemRainSim
     }
 
     /** Velocity resolution — called ONCE per step after positional resolution
-     * has settled. Uses SAT OBB contact normal to find the collision axis,
-     * then applies restitution + friction along that normal for pairs that
+     * has settled. Applies restitution + friction along the collision normal for pairs that
      * are in contact (overlapping or touching) AND approaching.  Per-axis
      * inverse masses match {@link #resolvePositions}. */
     private static void resolveVelocities(ItemBody[] bodies)
@@ -748,8 +633,7 @@ public class ItemRainSim
                 double depth = satContact(a, b, normal);
                 double nx = normal.x, ny = normal.y, nz = normal.z;
 
-                /* Only process overlapping or touching pairs (depth >= -EPSILON
-                 * to allow exactly-touching stacked bodies to receive impulses). */
+                /* Only resolve if objects are overlapping or touching AND approaching. */
                 if (depth < -EPSILON) continue;
 
                 /* Relative velocity along the contact normal. */
@@ -785,56 +669,92 @@ public class ItemRainSim
                 double e = Math.abs(relVn) < GRAVITY * DT ? 0.0D : RESTITUTION * 0.95D;
                 double impulse = -(1.0D + e) * relVn / totalW;
 
-                /* Apply the impulse along the full 3D SAT normal, weighted by
-                 * per-axis inverse masses.  This matches the position resolver
-                 * and lets momentum exchange occur along the true collision
-                 * direction. */
-                /* Apply impulse with slight damping to reduce jitter */
-                a.vel.x += impulse * nx * imX_A * 0.99D;
-                a.vel.y += impulse * ny * imY_A;
-                a.vel.z += impulse * nz * imZ_A * 0.99D;
-                b.vel.x -= impulse * nx * imX_B * 0.99D;
-                b.vel.y -= impulse * ny * imY_B;
-                b.vel.z -= impulse * nz * imZ_B * 0.99D;
+                /* Apply impulse along the normal. */
+                double ix = nx * impulse;
+                double iy = ny * impulse;
+                double iz = nz * impulse;
 
-                /* Friction: damp only the TANGENTIAL component of the relative
-                 * velocity (perpendicular to the collision normal).  The normal
-                 * component is handled by the restitution impulse above. */
-                double relVx = a.vel.x - b.vel.x;
-                double relVy = a.vel.y - b.vel.y;
-                double relVz = a.vel.z - b.vel.z;
+                if (!a.settled)
+                {
+                    a.vel.x += ix * imX_A;
+                    a.vel.y += iy * imY_A;
+                    a.vel.z += iz * imZ_A;
+                }
+                if (!b.settled)
+                {
+                    b.vel.x -= ix * imX_B;
+                    b.vel.y -= iy * imY_B;
+                    b.vel.z -= iz * imZ_B;
+                }
 
+                /* Friction: project the relative velocity onto the tangent plane
+                 * and apply an opposite impulse proportional to the normal impulse.
+                 * The tangent plane is perpendicular to the normal. */
+                double relVx = b.vel.x - a.vel.x;
+                double relVy = b.vel.y - a.vel.y;
+                double relVz = b.vel.z - a.vel.z;
                 double relVnFriction = relVx * nx + relVy * ny + relVz * nz;
-
                 double tx = relVx - relVnFriction * nx;
                 double ty = relVy - relVnFriction * ny;
                 double tz = relVz - relVnFriction * nz;
 
-                a.vel.x -= tx * FRICTION * imX_A;
-                a.vel.y -= ty * FRICTION * imY_A;
-                a.vel.z -= tz * FRICTION * imZ_A;
-                b.vel.x += tx * FRICTION * imX_B;
-                b.vel.y += ty * FRICTION * imY_B;
-                b.vel.z += tz * FRICTION * imZ_B;
+                double lenSq = tx * tx + ty * ty + tz * tz;
+                if (lenSq > EPSILON)
+                {
+                    double invLen = 1.0D / Math.sqrt(lenSq);
+                    tx *= invLen; ty *= invLen; tz *= invLen;
+
+                    double friction = Math.sqrt(0.78D * 0.78D);  // Use global FRICTION constant
+                    double frictionImpulse = -relVnFriction * friction / totalW;
+
+                    if (!a.settled)
+                    {
+                        a.vel.x -= tx * frictionImpulse * imX_A;
+                        a.vel.y -= ty * frictionImpulse * imY_A;
+                        a.vel.z -= tz * frictionImpulse * imZ_A;
+                    }
+                    if (!b.settled)
+                    {
+                        b.vel.x += tx * frictionImpulse * imX_B;
+                        b.vel.y += ty * frictionImpulse * imY_B;
+                        b.vel.z += tz * frictionImpulse * imZ_B;
+                    }
+                }
             }
         }
     }
 
-    /** Computes the set of bodies that are supported from below, propagating
-     *  contact chains from the floor upward.  A body is supported if:
-     *  <ol>
-     *    <li>it directly touches the floor ({@code pos.y &le; effY + EPSILON}), or</li>
-     *    <li>it rests on (X/Z overlap + vertical gap near zero &amp; center above)
-     *        another body that is itself supported (transitive closure).</li>
-     *  </ol>
+    /**
+     * Computes the vertical gap between two bodies' closest faces.
+     * Returns 0 if the bodies are touching, positive if they overlap,
+     * and negative if they are separated.
+     */
+    private static double verticalGap(ItemBody a, ItemBody b)
+    {
+        if (Math.abs(a.pos.x - b.pos.x) < a.effX + b.effX
+            && Math.abs(a.pos.z - b.pos.z) < a.effZ + b.effZ)
+        {
+            return (a.pos.y - a.effY) - (b.pos.y + b.effY);
+        }
+        else
+        {
+            return a.effY + b.effY;
+        }
+    }
+
+    /**
+     * Computes {@link ItemBody#settled} for every body: a body is settled if it
+     * is at rest on the floor or on another body that is ultimately supported
+     * by the floor.  Propagates support upward from the floor.
      *
-     *  <p>Used by the settle check to prevent bodies from sleeping in mid-air
-     *  when mutual collisions cancel their velocity before anyone hits the
-     *  ground.  Propagation iterates at most {@code n} times, which bounds
-     *  the maximum stack height and guarantees termination.
+     * <p>Used by the settle check to prevent bodies from sleeping in mid-air
+     * when mutual collisions cancel their velocity before anyone hits the
+     * ground.  Propagation iterates at most {@code n} times, which bounds
+     * the maximum stack height and guarantees termination.
      *
-     *  @return a boolean array parallel to {@code bodies}, {@code true} if the
-     *          body at that index is ultimately supported. */
+     * @return a boolean array parallel to {@code bodies}, {@code true} if the
+     *         body at that index is ultimately supported.
+     */
     private static boolean[] computeSupported(ItemBody[] bodies)
     {
         int n = bodies.length;
@@ -911,6 +831,7 @@ public class ItemRainSim
         return supported;
     }
 
+    /** Returns true if {@code b} overlaps any other body by at least {@code tolerance}. */
     private static boolean overlapsAny(ItemBody b, ItemBody[] bodies, double tolerance)
     {
         Vector3d normal = new Vector3d();
@@ -918,26 +839,15 @@ public class ItemRainSim
         for (ItemBody o : bodies)
         {
             if (o == b || !o.spawned) continue;
-
-            double depth = satOverlap(b, o, normal);
-            if (depth > tolerance) return true;
+            if (satContact(b, o, normal) > tolerance) return true;
         }
 
         return false;
     }
 
-    private static boolean finite(org.joml.Vector3d v)
+    /** Returns true if {@code v} is finite and not NaN. */
+    private static boolean finite(Vector3d v)
     {
         return Double.isFinite(v.x) && Double.isFinite(v.y) && Double.isFinite(v.z);
     }
-
-    /** Returns the baked frame index for a normalized progress in [0, 1]. */
-    public int frameIndex(float progress)
-    {
-        float f = Math.max(0.0F, Math.min(1.0F, progress)) * FRAMES;
-        int i = (int) f;
-
-        return Math.min(FRAMES, i);
-    }
-
 }
