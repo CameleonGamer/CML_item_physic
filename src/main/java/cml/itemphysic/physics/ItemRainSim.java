@@ -38,7 +38,8 @@ public class ItemRainSim
      *  {@link #EPSILON} (the minimum separation the position solver guarantees),
      *  but small enough to reject bodies that are merely near each other.  0.01
      *  blocks (~1 cm in Minecraft) is a safe middle ground. */
-    private static final double SUPPORT_GAP_THRESHOLD = 0.05D;
+    private static final double SUPPORT_GAP_THRESHOLD = 0.08D;
+    private static final double MIN_SUPPORT_THICKNESS = 0.06D;  // Minimum effective thickness for support detection
 
     /** Per-frame world-space state of every body. */
     public static class Frame
@@ -177,7 +178,8 @@ public class ItemRainSim
 
                     if (b.vel.y < 0.0D)
                     {
-                        b.vel.y = -b.vel.y * RESTITUTION;
+                        /* Apply restitution with damping to prevent perpetual bouncing */
+                        b.vel.y = -b.vel.y * RESTITUTION * 0.95D;
                     }
 
                     b.vel.x *= FRICTION;
@@ -216,6 +218,23 @@ public class ItemRainSim
                 }
                 b.vel.x *= FRICTION;
                 b.vel.z *= FRICTION;
+            }
+        }
+
+        /* 8b. Final support correction — ensure all items are properly supported
+         * after the main solver pass. This catches items that might have been
+         * pushed slightly above their support during collision resolution. */
+        boolean[] finalSupported = computeSupported(bodies);
+        for (int i = 0; i < bodies.length; i++)
+        {
+            ItemBody b = bodies[i];
+            if (!b.spawned || b.settled || finalSupported[i]) continue;
+            
+            /* If an item is not supported but is very close to the ground,
+             * force it to be supported to prevent floating */
+            if (b.pos.y <= b.effY + SUPPORT_GAP_THRESHOLD + MIN_SUPPORT_THICKNESS)
+            {
+                b.pos.y = b.effY;
             }
         }
 
@@ -656,10 +675,11 @@ public class ItemRainSim
                 double dB2 = nx * b2x + ny * b2y + nz * b2z;
                 double rB = bhX * Math.abs(dB0) + bhY * Math.abs(dB1) + bhZ * Math.abs(dB2);
 
-                double cDist = Math.abs(dx * nx + dy * ny + dz * nz);
-                double d = rA + rB - cDist;
+        double cDist = Math.abs(dx * nx + dy * ny + dz * nz);
+        double d = rA + rB - cDist;
 
-                if (d < bestDepth)
+        /* Add small epsilon to prevent micro-collisions from being missed */
+        if (d < bestDepth && d > -1.0E-4D)
                 {
                     bestDepth = d;
                     bestNx = (float) nx; bestNy = (float) ny; bestNz = (float) nz;
@@ -743,20 +763,21 @@ public class ItemRainSim
                  * m/s).  The limit cycle's approach velocity (0.222 after
                  * gravity) is below 0.3, so e is forced to 0 and the bounce
                  * dissipates.  Normal high-speed impacts (>0.3 m/s) still use
-                 * the full restitution. */
-                double e = Math.abs(relVn) < GRAVITY * DT ? 0.0D : RESTITUTION;
+                 * the full restitution with slight damping to reduce jitter. */
+                double e = Math.abs(relVn) < GRAVITY * DT ? 0.0D : RESTITUTION * 0.98D;
                 double impulse = -(1.0D + e) * relVn / totalW;
 
                 /* Apply the impulse along the full 3D SAT normal, weighted by
                  * per-axis inverse masses.  This matches the position resolver
                  * and lets momentum exchange occur along the true collision
                  * direction. */
-                a.vel.x += impulse * nx * imX_A;
+                /* Apply impulse with slight damping to reduce jitter */
+                a.vel.x += impulse * nx * imX_A * 0.99D;
                 a.vel.y += impulse * ny * imY_A;
-                a.vel.z += impulse * nz * imZ_A;
-                b.vel.x -= impulse * nx * imX_B;
+                a.vel.z += impulse * nz * imZ_A * 0.99D;
+                b.vel.x -= impulse * nx * imX_B * 0.99D;
                 b.vel.y -= impulse * ny * imY_B;
-                b.vel.z -= impulse * nz * imZ_B;
+                b.vel.z -= impulse * nz * imZ_B * 0.99D;
 
                 /* Friction: damp only the TANGENTIAL component of the relative
                  * velocity (perpendicular to the collision normal).  The normal
@@ -809,7 +830,10 @@ public class ItemRainSim
                 continue;
             }
 
-            if (bodies[i].pos.y <= bodies[i].effY + SUPPORT_GAP_THRESHOLD)
+            /* For thin items (like pressure plates), use a minimum effective thickness
+             * to ensure they're detected as supported even if slightly above ground */
+            double effectiveThickness = Math.max(bodies[i].effY, MIN_SUPPORT_THICKNESS);
+            if (bodies[i].pos.y <= bodies[i].effY + SUPPORT_GAP_THRESHOLD + (effectiveThickness - bodies[i].effY))
             {
                 supported[i] = true;
             }
@@ -849,10 +873,13 @@ public class ItemRainSim
                     double gap = (bodies[i].pos.y - bodies[i].effY)
                                - (bodies[j].pos.y + bodies[j].effY);
 
-                    /* i rests on j if its bottom is very close to j's top
-                     * (gap near zero) AND i's center is above j's center
-                     * (directionality: i is supported BY j, not the opposite). */
-                    if (Math.abs(gap) < SUPPORT_GAP_THRESHOLD
+                    /* For thin items, use minimum effective thickness to ensure support detection */
+                    double iThickness = Math.max(bodies[i].effY, MIN_SUPPORT_THICKNESS);
+                    double jThickness = Math.max(bodies[j].effY, MIN_SUPPORT_THICKNESS);
+                    double effectiveGap = gap - (iThickness - bodies[i].effY);
+
+                    /* i rests on j if its bottom is close to j's top AND i's center is above j's center */
+                    if (Math.abs(effectiveGap) < SUPPORT_GAP_THRESHOLD
                         && bodies[i].pos.y > bodies[j].pos.y)
                     {
                         supported[i] = true;
