@@ -38,7 +38,8 @@ public class ItemRainSim
      *  {@link #EPSILON} (the minimum separation the position solver guarantees),
      *  but small enough to reject bodies that are merely near each other.  0.01
      *  blocks (~1 cm in Minecraft) is a safe middle ground. */
-    private static final double SUPPORT_GAP_THRESHOLD = 0.08D;
+    private static final double SUPPORT_GAP_THRESHOLD = 0.02D;
+    private static final double MIN_SUPPORT_HEIGHT = 0.04D;  // Minimum height for support detection
     private static final double MIN_SUPPORT_THICKNESS = 0.06D;  // Minimum effective thickness for support detection
 
     /** Per-frame world-space state of every body. */
@@ -780,8 +781,8 @@ public class ItemRainSim
                  * m/s).  The limit cycle's approach velocity (0.222 after
                  * gravity) is below 0.3, so e is forced to 0 and the bounce
                  * dissipates.  Normal high-speed impacts (>0.3 m/s) still use
-                 * the full restitution with slight damping to reduce jitter. */
-                double e = Math.abs(relVn) < GRAVITY * DT ? 0.0D : RESTITUTION * 0.98D;
+                 * the full restitution with slight damping for stability. */
+                double e = Math.abs(relVn) < GRAVITY * DT ? 0.0D : RESTITUTION * 0.95D;
                 double impulse = -(1.0D + e) * relVn / totalW;
 
                 /* Apply the impulse along the full 3D SAT normal, weighted by
@@ -849,8 +850,8 @@ public class ItemRainSim
 
             /* For thin items (like pressure plates), use a minimum effective thickness
              * to ensure they're detected as supported even if slightly above ground */
-            double effectiveThickness = Math.max(bodies[i].effY, MIN_SUPPORT_THICKNESS);
-            if (bodies[i].pos.y <= bodies[i].effY + SUPPORT_GAP_THRESHOLD + (effectiveThickness - bodies[i].effY))
+            double minHeight = Math.max(bodies[i].effY, 0.04D);  // At least 0.04 blocks high
+            if (bodies[i].pos.y <= bodies[i].effY + SUPPORT_GAP_THRESHOLD + (minHeight - bodies[i].effY))
             {
                 supported[i] = true;
             }
@@ -890,13 +891,8 @@ public class ItemRainSim
                     double gap = (bodies[i].pos.y - bodies[i].effY)
                                - (bodies[j].pos.y + bodies[j].effY);
 
-                    /* For thin items, use minimum effective thickness to ensure support detection */
-                    double iThickness = Math.max(bodies[i].effY, MIN_SUPPORT_THICKNESS);
-                    double jThickness = Math.max(bodies[j].effY, MIN_SUPPORT_THICKNESS);
-                    double effectiveGap = gap - (iThickness - bodies[i].effY);
-
                     /* i rests on j if its bottom is close to j's top AND i's center is above j's center */
-                    if (Math.abs(effectiveGap) < SUPPORT_GAP_THRESHOLD
+                    if (Math.abs(gap) < SUPPORT_GAP_THRESHOLD * 1.5  // More tolerant for item-item support
                         && bodies[i].pos.y > bodies[j].pos.y)
                     {
                         supported[i] = true;

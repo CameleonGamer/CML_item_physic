@@ -1,0 +1,33 @@
+diff --git a/src/main/java/cml/itemphysic/physics/ItemRainSim.java b/src/main/java/cml/itemphysic/physics/ItemRainSim.java
+index abc123..def456 100644
+--- a/src/main/java/cml/itemphysic/physics/ItemRainSim.java
++++ b/src/main/java/cml/itemphysic/physics/ItemRainSim.java
+@@ -41,6 +41,7 @@ public class ItemRainSim
+     private static final double RESTITUTION = 0.35D;
+     private static final double FRICTION = 0.78D;
+     private static final double STOP_SPEED = 0.03D;
++    private static final double MIN_SUPPORT_HEIGHT = 0.04D;  // Minimum height for support detection
+     private static final int FRAMES = 240;
+     private static final double DT = 1.0D / 60.0D;
+     private static final double EPSILON = 1.0E-4D;
+@@ -846,7 +847,10 @@ public class ItemRainSim
+             if (!bodies[i].spawned)
+             {
+                 continue;
+-            }
++
++            // Use minimum support height for thin items
++            double minHeight = Math.max(bodies[i].effY, MIN_SUPPORT_HEIGHT);
++            }
+ 
+             if (bodies[i].pos.y <= bodies[i].effY + SUPPORT_GAP_THRESHOLD)
+             {
+@@ -896,7 +900,7 @@ public class ItemRainSim
+                     double gap = (bodies[i].pos.y - bodies[i].effY)
+                                - (bodies[j].pos.y + bodies[j].effY);
+ 
+-                    if (Math.abs(gap) < SUPPORT_GAP_THRESHOLD
++                    if (Math.abs(gap) < SUPPORT_GAP_THRESHOLD * 1.5  // More tolerant for item-item support
+                         && bodies[i].pos.y > bodies[j].pos.y)
+                     {
+                         supported[i] = true;
