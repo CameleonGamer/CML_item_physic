@@ -25,8 +25,11 @@ public class ItemBody
     public final Quaternionf quat = new Quaternionf();
     public final Vector3f spinAxis = new Vector3f(0.0F, 1.0F, 0.0F);
     public float spinSpeed = 0.0F;
+    public float bounce = 0.35F;
     public boolean settled = false;
     public boolean spawned = false;
+    /** Consecutive frames with near-zero velocity (used for stacking stability). */
+    public int stableFrames = 0;
 
     /** Effective axis-aligned half-extents after accounting for the body's
      *  current rotation. Updated each solver step by

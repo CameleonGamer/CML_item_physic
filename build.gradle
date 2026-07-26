@@ -50,6 +50,8 @@ dependencies {
     // BBS CML Edition - provided as a local (flat) dependency.
     // The mod jar is expected in the libs/ folder (see libs/bbs-cml-edition-*.jar).
     modImplementation files(bbsJar)
+    
+
 }
 
 processResources {

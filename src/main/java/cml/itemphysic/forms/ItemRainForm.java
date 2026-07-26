@@ -290,27 +290,38 @@ public class ItemRainForm extends ItemForm
         }
 
         ItemBody[] bodies = new ItemBody[count];
+        boolean isHeap = mode == ItemRainForm.MODE_HEAP;
         int cols = Math.max(1, (int) Math.ceil(Math.sqrt(count)));
-        double minHalf = WorldCollision.ITEM_HALF * 1.1D;
+        double itemDiameter = WorldCollision.ITEM_HALF * 2.0D * itemScale;
+        double minHalf = itemDiameter * 0.75D;
         double minArea = minHalf * Math.max(1, cols - 1);
-        float area = mode == ItemRainForm.MODE_HEAP
+        float area = isHeap
             ? (float) Math.max(minArea, Math.max(1.2F, spread * 0.5F))
             : (float) Math.max(minArea, Math.max(2.0F, spread));
         double step = (area * 2.0D) / Math.max(1, cols - 1);
+        double heapSpread = Math.max(0.05D, spread * 0.25D);
 
         for (int i = 0; i < count; i++)
         {
             int itemSeed = this.seedFor(i);
 
-            int gx = i % cols;
-            int gz = i / cols;
+            double ox, oz;
 
-            double ox = -area + gx * step;
-            double oz = -area + gz * step;
-
-            double jitter = step * 0.15D;
-            ox += (rand01(itemSeed, 91) - 0.5D) * jitter;
-            oz += (rand01(itemSeed, 92) - 0.5D) * jitter;
+            if (isHeap)
+            {
+                ox = (rand01(itemSeed, 91) - 0.5D) * heapSpread;
+                oz = (rand01(itemSeed, 92) - 0.5D) * heapSpread;
+            }
+            else
+            {
+                int gx = i % cols;
+                int gz = i / cols;
+                ox = -area + gx * step;
+                oz = -area + gz * step;
+                double jitter = step * 0.15D;
+                ox += (rand01(itemSeed, 91) - 0.5D) * jitter;
+                oz += (rand01(itemSeed, 92) - 0.5D) * jitter;
+            }
 
             this.bakedOffsetX[i] = (float) ox;
             this.bakedOffsetZ[i] = (float) oz;
@@ -363,19 +374,22 @@ public class ItemRainForm extends ItemForm
                 body.spinAxis.set(axis);
                 body.spinSpeed = spins * (float) (Math.PI * 2.0) * (0.5F + rand01(itemSeed, 74));
 
-                double spread0 = Math.max(0.1D, spread);
-                double driftX = (rand01(itemSeed, 81) - 0.5D) * 0.4D * spread0;
-                double driftZ = (rand01(itemSeed, 82) - 0.5D) * 0.4D * spread0;
+                double driftScale = isHeap ? Math.min(0.3D, spread * 0.04D) : Math.max(0.1D, spread) * 0.4D;
+                double driftX = (rand01(itemSeed, 81) - 0.5D) * driftScale;
+                double driftZ = (rand01(itemSeed, 82) - 0.5D) * driftScale;
 
                 body.vel.x = driftX;
                 body.vel.z = driftZ;
             }
 
+            body.bounce = this.bounce.get();  // Apply keyframe bounce value
             bodies[i] = body;
         }
 
         double spawnInterval = count <= 1 ? 0.0D : (minimal ? 0.0D : Math.min(0.6D, 2.0D / count));
-        this.sim = ItemRainSim.bake(bodies, spawnInterval);
+        this.sim = isHeap
+            ? ItemRainSim.heapBake(bodies, spawnInterval, dropHeight)
+            : ItemRainSim.bake(bodies, spawnInterval);
 
         this.cachedCount = count;
         this.cachedMode = mode;
