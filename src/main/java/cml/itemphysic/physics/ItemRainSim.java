@@ -180,32 +180,21 @@ public class ItemRainSim
                     bodies[i].spawned = true;
                     // Set initial position at spawn height with final XZ
                     bodies[i].pos.set(bodies[i].pos.x, spawnY[i], bodies[i].pos.z);
-                    // Random spin for visual effect
-                    if (Math.abs(bodies[i].spinSpeed) < 1.0E-4F)
-                    {
-                        Random random = new Random(i);
-                        bodies[i].spinSpeed = 0.1F + random.nextFloat() * 0.3F;
-                        bodies[i].spinAxis.set(
-                            random.nextFloat() * 2 - 1,
-                            random.nextFloat() * 2 - 1,
-                            random.nextFloat() * 2 - 1
-                        ).normalize();
-                    }
+                    // Set a static random orientation (no per-frame spin to keep AABB stable)
+                    Random random = new Random(i);
+                    float ax = random.nextFloat() * 2.0F - 1.0F;
+                    float ay = random.nextFloat() * 2.0F - 1.0F;
+                    float az = random.nextFloat() * 2.0F - 1.0F;
+                    float angle = random.nextFloat() * (float) (Math.PI * 2.0);
+                    bodies[i].quat.rotateAxis(angle, ax, ay, az);
                 }
             }
 
-            // Move spawned, unsettled items toward their final Y with spin and bounce
+            // Move spawned, unsettled items toward their final Y with bounce
             for (int i = 0; i < n; i++)
             {
                 ItemBody b = bodies[i];
                 if (!b.spawned || b.settled) continue;
-
-                // Apply spin rotation while falling
-                if (Math.abs(b.spinSpeed) > 1.0E-4F)
-                {
-                    b.quat.rotateAxis(b.spinSpeed * (float) DT, b.spinAxis.x, b.spinAxis.y, b.spinAxis.z);
-                    b.spinSpeed *= (float) 0.98D;
-                }
 
                 double targetY = finalY[i];
 
