@@ -77,6 +77,7 @@ public class ItemRainSim
     public static ItemRainSim bake(ItemBody[] bodies, double spawnInterval)
     {
         int n = bodies.length;
+        double totalTime = FRAMES * DT;
         float[] spawn = new float[n];
         for (int i = 0; i < n; i++) spawn[i] = (float) (i * spawnInterval);
 
@@ -141,7 +142,9 @@ public class ItemRainSim
             drain++;
         }
 
-        return new ItemRainSim(bodies, spawn, frameList.toArray(new Frame[0]));
+        float[] normSpawn = new float[n];
+        for (int i = 0; i < n; i++) normSpawn[i] = Math.min(1.0F, (float) (spawn[i] / totalTime));
+        return new ItemRainSim(bodies, normSpawn, frameList.toArray(new Frame[0]));
     }
 
     // ─── Heap bake (placement algorithm, no physics) ───
@@ -149,6 +152,7 @@ public class ItemRainSim
     public static ItemRainSim heapBake(ItemBody[] bodies, double spawnInterval, double dropHeight)
     {
         int n = bodies.length;
+        double totalTime = FRAMES * DT;
         float[] spawn = new float[n];
         for (int i = 0; i < n; i++) spawn[i] = (float) (i * spawnInterval);
 
@@ -267,7 +271,9 @@ public class ItemRainSim
             drain++;
         }
 
-        return new ItemRainSim(bodies, spawn, frameList.toArray(new Frame[0]));
+        float[] normSpawn = new float[n];
+        for (int i = 0; i < n; i++) normSpawn[i] = Math.min(1.0F, (float) (spawn[i] / totalTime));
+        return new ItemRainSim(bodies, normSpawn, frameList.toArray(new Frame[0]));
     }
 
     // ─── Heap placement algorithm ───
