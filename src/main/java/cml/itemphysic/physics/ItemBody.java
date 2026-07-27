@@ -30,6 +30,8 @@ public class ItemBody
     public boolean spawned = false;
     /** Consecutive frames with near-zero velocity (used for stacking stability). */
     public int stableFrames = 0;
+    /** Bounce state machine: 0 = first descent, 1 = bouncing. */
+    public int bounceState = 0;
 
     /** Effective axis-aligned half-extents after accounting for the body's
      *  current rotation. Updated each solver step by

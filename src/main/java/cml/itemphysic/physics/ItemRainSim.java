@@ -149,7 +149,8 @@ public class ItemRainSim
 
     // ─── Heap bake (placement algorithm, no physics) ───
 
-    public static ItemRainSim heapBake(ItemBody[] bodies, double spawnInterval, double dropHeight)
+    public static ItemRainSim heapBake(ItemBody[] bodies, double spawnInterval, double dropHeight,
+                                       double bounce, boolean canOverlap, double itemsOffset)
     {
         int n = bodies.length;
         double totalTime = FRAMES * DT;
@@ -157,7 +158,7 @@ public class ItemRainSim
         for (int i = 0; i < n; i++) spawn[i] = (float) (i * spawnInterval);
 
         // Compute final pile positions using placement algorithm
-        double[] finalY = computeHeapPositions(bodies);
+        double[] finalY = computeHeapPositions(bodies, canOverlap, itemsOffset);
         double minFall = 1.5D; // minimum fall height so every item gets visible falling animation
         double[] spawnY = new double[n];
         for (int i = 0; i < n; i++)
@@ -193,7 +194,7 @@ public class ItemRainSim
                 }
             }
 
-            // Move spawned, unsettled items toward their final Y with spin
+            // Move spawned, unsettled items toward their final Y with spin and bounce
             for (int i = 0; i < n; i++)
             {
                 ItemBody b = bodies[i];
@@ -207,24 +208,48 @@ public class ItemRainSim
                 }
 
                 double targetY = finalY[i];
-                double diff = targetY - b.pos.y;
 
-                if (Math.abs(diff) < 0.001)
+                if (b.bounceState == 0)
                 {
-                    b.pos.y = targetY;
-                    b.spinSpeed = 0.0F;
-                    b.settled = true;
-                }
-                else
-                {
+                    // First descent toward target
                     b.vel.y -= gravity * DT;
                     b.pos.y += b.vel.y * DT;
 
                     if (b.pos.y <= targetY)
                     {
-                        b.pos.y = targetY;
-                        b.spinSpeed = 0.0F;
-                        b.settled = true;
+                        if (bounce > 0.001D && Math.abs(b.vel.y) > 0.05D)
+                        {
+                            b.pos.y = targetY;
+                            b.vel.y = -b.vel.y * bounce;
+                            b.bounceState = 1;
+                        }
+                        else
+                        {
+                            b.pos.y = targetY;
+                            b.spinSpeed = 0.0F;
+                            b.settled = true;
+                        }
+                    }
+                }
+                else
+                {
+                    // Bounce ascent/descent
+                    b.vel.y -= gravity * DT;
+                    b.pos.y += b.vel.y * DT;
+
+                    if (b.pos.y <= targetY)
+                    {
+                        if (bounce > 0.001D && Math.abs(b.vel.y) > 0.05D)
+                        {
+                            b.pos.y = targetY;
+                            b.vel.y = -b.vel.y * bounce * 0.6D;
+                        }
+                        else
+                        {
+                            b.pos.y = targetY;
+                            b.spinSpeed = 0.0F;
+                            b.settled = true;
+                        }
                     }
                 }
             }
@@ -278,11 +303,11 @@ public class ItemRainSim
 
     // ─── Heap placement algorithm ───
 
-    private static double[] computeHeapPositions(ItemBody[] bodies)
+    private static double[] computeHeapPositions(ItemBody[] bodies, boolean canOverlap, double itemsOffset)
     {
         int n = bodies.length;
         double[] finalY = new double[n];
-        List<double[]> placed = new ArrayList<>();  // [x, z, halfX, halfZ, topY]
+        List<double[]> placed = new ArrayList<>();  // [x, z, radiusX, radiusZ, topY]
 
         for (int i = 0; i < n; i++)
         {
@@ -296,15 +321,20 @@ public class ItemRainSim
             {
                 double bestSupportTop = 0;
 
-                for (double[] p : placed)
+                if (canOverlap)
                 {
-                    double overlapX = (body.halfX + p[2]) - Math.abs(body.pos.x - p[0]);
-                    double overlapZ = (body.halfZ + p[3]) - Math.abs(body.pos.z - p[1]);
-
-                    if (overlapX > 0 && overlapZ > 0)
+                    for (double[] p : placed)
                     {
-                        double pTop = p[4];
-                        if (pTop > bestSupportTop) bestSupportTop = pTop;
+                        double rX = body.halfX + p[2] + itemsOffset;
+                        double rZ = body.halfZ + p[3] + itemsOffset;
+                        double overlapX = rX - Math.abs(body.pos.x - p[0]);
+                        double overlapZ = rZ - Math.abs(body.pos.z - p[1]);
+
+                        if (overlapX > 0 && overlapZ > 0)
+                        {
+                            double pTop = p[4];
+                            if (pTop > bestSupportTop) bestSupportTop = pTop;
+                        }
                     }
                 }
 
@@ -318,8 +348,10 @@ public class ItemRainSim
                 }
             }
 
+            double radiusX = body.halfX + itemsOffset;
+            double radiusZ = body.halfZ + itemsOffset;
             double topY = finalY[i] + body.halfY;
-            placed.add(new double[]{ body.pos.x, body.pos.z, body.halfX, body.halfZ, topY });
+            placed.add(new double[]{ body.pos.x, body.pos.z, radiusX, radiusZ, topY });
         }
 
         return finalY;

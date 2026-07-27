@@ -86,6 +86,9 @@ public class ItemRainForm extends ItemForm
     /** Deterministic seed used when {@link #useRandomSeed} is false. */
     public final ValueInt seed = new ValueInt("seed", 1, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
+    /** Extra XZ spacing (blocks) between items in the heap. */
+    public final ValueFloat itemsOffset = new ValueFloat("items_offset", 0.0F, 0.0F, 4.0F);
+
     /** Whether items are allowed to overlap/stack ("se superposer"). */
     public final ValueBoolean canOverlap = new ValueBoolean("can_overlap", false);
 
@@ -111,6 +114,8 @@ public class ItemRainForm extends ItemForm
     private float cachedBounce = Float.NaN;
     private float cachedSpins = Float.NaN;
     private float cachedItemScale = Float.NaN;
+    private float cachedItemsOffset = Float.NaN;
+    private boolean cachedCanOverlap;
     private int cachedSeed;
 
     public ItemRainForm()
@@ -130,6 +135,7 @@ public class ItemRainForm extends ItemForm
         this.add(this.items);
         this.add(this.useRandomSeed);
         this.add(this.seed);
+        this.add(this.itemsOffset);
         this.add(this.canOverlap);
     }
 
@@ -205,6 +211,11 @@ public class ItemRainForm extends ItemForm
         return ((Integer) this.seed.get()).intValue();
     }
 
+    public float getItemsOffset()
+    {
+        return ((Float) this.itemsOffset.get()).floatValue();
+    }
+
     public boolean canOverlap()
     {
         return ((Boolean) this.canOverlap.get()).booleanValue();
@@ -254,6 +265,8 @@ public class ItemRainForm extends ItemForm
         float bounce = this.getBounce();
         float spins = this.getSpins();
         float itemScale = this.getItemScale();
+        float itemsOffset = this.getItemsOffset();
+        boolean canOverlap = this.canOverlap();
         int seed = this.isUseRandomSeed() ? this.getRandomSeed() : this.getSeed();
 
         boolean cacheOk = this.sim != null
@@ -266,6 +279,8 @@ public class ItemRainForm extends ItemForm
             && bounce == this.cachedBounce
             && spins == this.cachedSpins
             && itemScale == this.cachedItemScale
+            && itemsOffset == this.cachedItemsOffset
+            && canOverlap == this.cachedCanOverlap
             && seed == this.cachedSeed;
 
         if (cacheOk)
@@ -388,7 +403,7 @@ public class ItemRainForm extends ItemForm
 
         double spawnInterval = count <= 1 ? 0.0D : (minimal ? 0.0D : Math.min(0.6D, 2.0D / count));
         this.sim = isHeap
-            ? ItemRainSim.heapBake(bodies, spawnInterval, dropHeight)
+            ? ItemRainSim.heapBake(bodies, spawnInterval, dropHeight, bounce, canOverlap, itemsOffset)
             : ItemRainSim.bake(bodies, spawnInterval);
 
         this.cachedCount = count;
@@ -400,6 +415,8 @@ public class ItemRainForm extends ItemForm
         this.cachedBounce = bounce;
         this.cachedSpins = spins;
         this.cachedItemScale = itemScale;
+        this.cachedItemsOffset = itemsOffset;
+        this.cachedCanOverlap = canOverlap;
         this.cachedSeed = seed;
     }
 }
