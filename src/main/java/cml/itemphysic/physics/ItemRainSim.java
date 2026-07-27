@@ -503,9 +503,6 @@ public class ItemRainSim
 
     private static boolean isStable(ItemBody b, ItemBody[] bodies)
     {
-        boolean stableOrientation = Math.abs(b.quat.w) > 0.9999;
-        if (!stableOrientation) return false;
-
         if (Math.abs(b.pos.y - b.effY) < SUPPORT_GAP_THRESHOLD) return true;
 
         return b.stableFrames >= 8 && hasSupportBelow(b, bodies);
