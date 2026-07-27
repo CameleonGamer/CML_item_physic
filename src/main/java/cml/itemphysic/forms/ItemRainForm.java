@@ -322,7 +322,7 @@ public class ItemRainForm extends ItemForm
 
             double ox, oz;
 
-            if (isHeap)
+            if (isHeap && canOverlap)
             {
                 ox = (rand01(itemSeed, 91) - 0.5D) * heapSpread;
                 oz = (rand01(itemSeed, 92) - 0.5D) * heapSpread;

@@ -220,6 +220,7 @@ public class ItemRainSim
                         if (bounce > 0.001D && Math.abs(b.vel.y) > 0.05D)
                         {
                             b.pos.y = targetY;
+                            b.spinSpeed = 0.0F;
                             b.vel.y = -b.vel.y * bounce;
                             b.bounceState = 1;
                         }
@@ -233,7 +234,7 @@ public class ItemRainSim
                 }
                 else
                 {
-                    // Bounce ascent/descent
+                    // Bounce ascent/descent (no spin during bounces)
                     b.vel.y -= gravity * DT;
                     b.pos.y += b.vel.y * DT;
 
